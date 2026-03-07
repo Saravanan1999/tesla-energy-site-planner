@@ -48,6 +48,8 @@ export default function App() {
     quantities: Record<number, number>
     requestedMWh: number
   } | null>(null)
+  const [isDirty, setIsDirty] = useState(false)
+  const [confirmNew, setConfirmNew] = useState(false)
 
   useEffect(() => {
     localStorage.setItem('draft_quantities', JSON.stringify(quantities))
@@ -66,6 +68,18 @@ export default function App() {
     localStorage.setItem('draft_objective', objective)
     objectiveRef.current = objective
   }, [objective])
+
+  // Cmd+S / Ctrl+S to save
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+        e.preventDefault()
+        handleSave()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }) // no deps — always uses latest handleSave
 
   // Bar animation completes after 5 bars × 220ms stagger + 600ms each ≈ 1.5s
   useEffect(() => {
@@ -204,6 +218,7 @@ export default function App() {
       setIsGenerating(false)
       if (res.success && res.data) {
         setSitePlan(res.data)
+        setIsDirty(true)
         // Push the pre-edit snapshot now that the plan is confirmed
         if (manualSnapshotRef.current !== null) {
           const snap = manualSnapshotRef.current
@@ -236,6 +251,7 @@ export default function App() {
       setSaveError(res.error?.details?.[0] ?? res.error?.message ?? 'Failed to save.')
     } else {
       if (res.data?.sessionId) setCurrentSessionId(res.data.sessionId)
+      setIsDirty(false)
       refreshSessionNames()
       setToastLabel(null)
       setSavedToast('in')
@@ -264,6 +280,7 @@ export default function App() {
       for (const d of res.data.requestedDevices) qty[d.id] = d.quantity
       setQuantities(qty)
       setAppliedSnapshots([])
+      setIsDirty(false)
       setShowResume(false)
     }
     setTimeout(() => setLoadingSplashFading(true), 800)
@@ -318,7 +335,7 @@ export default function App() {
     const applyObjective = objectiveRef.current === 'user_plan' ? 'min_area' : objectiveRef.current
     const res = await generateSitePlan(configured, applyObjective)
     setIsGenerating(false)
-    if (res.success && res.data) setSitePlan(res.data)
+    if (res.success && res.data) { setSitePlan(res.data); setIsDirty(true) }
     else { setPlanError(res.error?.message ?? 'Failed to generate layout.'); setSitePlan(null) }
   }
 
@@ -338,7 +355,7 @@ export default function App() {
     const revertObjective = objectiveRef.current === 'user_plan' ? 'min_area' : objectiveRef.current
     const res = await generateSitePlan(configured, revertObjective)
     setIsGenerating(false)
-    if (res.success && res.data) setSitePlan(res.data)
+    if (res.success && res.data) { setSitePlan(res.data); setIsDirty(true) }
     else { setPlanError(res.error?.message ?? 'Failed to restore layout.'); setSitePlan(null) }
   }
 
@@ -397,6 +414,27 @@ export default function App() {
 
   const handleCancelTargetPlan = () => {
     setPendingTargetPlan(null)
+  }
+
+  const resetSession = () => {
+    clearTimeout(debounceRef.current)
+    manualSnapshotRef.current = null
+    setQuantities({})
+    setSitePlan(null)
+    setSiteName('')
+    setCurrentSessionId(null)
+    setAppliedSnapshots([])
+    setOptimalLayouts({})
+    setPlanError(null)
+    setSaveError(null)
+    setIsDirty(false)
+    setPendingTargetPlan(null)
+  }
+
+  const handleNewSession = async (saveFirst: boolean) => {
+    setConfirmNew(false)
+    if (saveFirst) await handleSave()
+    resetSession()
   }
 
   const handleSaveAs = async (newName: string): Promise<boolean> => {
@@ -486,9 +524,20 @@ export default function App() {
             ))}
           </div>
           <h1 className="text-sm font-bold text-white tracking-tight">Tesla Energy Site Planner</h1>
+          {siteName && (
+            <span className="text-xs text-gray-500">
+              {siteName}{isDirty && <span className="text-amber-400 ml-0.5">*</span>}
+            </span>
+          )}
         </div>
 
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => { if (isDirty && hasSelection) setConfirmNew(true); else resetSession() }}
+            className="px-3 py-1.5 text-xs text-gray-400 hover:text-white border border-gray-700 hover:border-gray-500 rounded-lg transition-colors"
+          >
+            New Session
+          </button>
           <button
             onClick={() => setShowResume(true)}
             className="px-3 py-1.5 text-xs text-gray-400 hover:text-white border border-gray-700 hover:border-gray-500 rounded-lg transition-colors"
@@ -501,10 +550,40 @@ export default function App() {
             title={siteNameConflict ?? undefined}
             className="px-3 py-1.5 text-xs font-medium bg-blue-600 hover:bg-blue-500 disabled:bg-gray-800 disabled:text-gray-600 text-white rounded-lg transition-colors"
           >
-            {isSaving ? 'Saving…' : 'Save Session'}
+            {isSaving ? 'Saving…' : isDirty ? 'Save Session *' : 'Save Session'}
           </button>
         </div>
       </header>
+
+      {/* New Session confirmation dialog */}
+      {confirmNew && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="bg-gray-900 border border-gray-700 rounded-2xl shadow-2xl p-6 w-80 flex flex-col gap-4">
+            <p className="text-sm font-semibold text-white">Start a new session?</p>
+            <p className="text-xs text-gray-400">You have unsaved changes. Do you want to save the current session before starting fresh?</p>
+            <div className="flex flex-col gap-2">
+              <button
+                onClick={() => handleNewSession(true)}
+                className="w-full px-4 py-2 text-xs font-medium bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors"
+              >
+                Save &amp; New
+              </button>
+              <button
+                onClick={() => handleNewSession(false)}
+                className="w-full px-4 py-2 text-xs font-medium bg-gray-800 hover:bg-gray-700 text-gray-200 rounded-lg transition-colors"
+              >
+                Discard &amp; New
+              </button>
+              <button
+                onClick={() => setConfirmNew(false)}
+                className="w-full px-4 py-2 text-xs text-gray-500 hover:text-gray-300 transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Main content */}
       <div className="flex-1 flex overflow-hidden">
@@ -521,7 +600,7 @@ export default function App() {
             error={planError}
             onRemove={id => handleQuantityChange(id, Math.max(0, (quantities[id] ?? 0) - 1))}
             siteName={siteName}
-            onSiteNameChange={name => { setSiteName(name); setSaveError(null) }}
+            onSiteNameChange={name => { setSiteName(name); setSaveError(null); setIsDirty(true) }}
             nameError={saveError}
             nameWarning={siteNameConflict}
           />
