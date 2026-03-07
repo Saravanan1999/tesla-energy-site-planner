@@ -1,3 +1,4 @@
+import { useLayoutEffect, useRef, useState } from 'react'
 import type { SitePlanData, LayoutItem } from '../types/api'
 
 interface Props {
@@ -45,7 +46,7 @@ function TransformerIcon() {
   )
 }
 
-function LayoutBlock({ item, onRemove }: { item: LayoutItem; onRemove?: (deviceId: number) => void }) {
+function LayoutBlock({ item, onRemove, isExiting }: { item: LayoutItem; onRemove?: (deviceId: number) => void; isExiting?: boolean }) {
   const isBattery = item.zone === 'battery'
   const segments = Math.max(1, Math.round(item.widthFt / 10))
   const w = item.widthFt * SCALE
@@ -55,7 +56,10 @@ function LayoutBlock({ item, onRemove }: { item: LayoutItem; onRemove?: (deviceI
 
   return (
     <div
-      className="absolute flex items-stretch"
+      className={`absolute flex items-stretch ${isExiting
+        ? (isBattery ? 'animate-shrink-battery' : 'animate-shrink-transformer')
+        : (isBattery ? 'animate-grow-battery' : 'animate-grow-transformer')
+      } ${isExiting ? 'pointer-events-none' : ''}`}
       style={{ left: item.xFt * SCALE, top: item.yFt * SCALE, width: w, height: h }}
       title={`${item.label} — ${item.widthFt}×${item.heightFt}ft${item.energyMWh ? ` · ${item.energyMWh} MWh` : ''}`}
     >
@@ -142,7 +146,59 @@ function GridLines({ widthFt, heightFt }: { widthFt: number; heightFt: number })
 }
 
 export default function SiteCanvas({ sitePlan, isLoading, error, onRemove, siteName, onSiteNameChange, nameError }: Props) {
-  if (error) {
+  // Derive values unconditionally so hooks are always called in the same order
+  const layout = sitePlan?.layout ?? []
+  const canvasW = sitePlan ? sitePlan.metrics.siteWidthFt * SCALE : 0
+  const canvasH = sitePlan ? sitePlan.metrics.siteHeightFt * SCALE : 0
+
+  // displayLayout: what we actually render (frozen at old positions during exit animation)
+  // exitingIds: IDs of items that are animating out
+  const [displayLayout, setDisplayLayout] = useState<LayoutItem[]>([])
+  const [exitingIds, setExitingIds] = useState<Set<string>>(new Set())
+  const [minCanvasSize, setMinCanvasSize] = useState<{ w: number; h: number } | null>(null)
+  const prevLayoutRef = useRef<LayoutItem[]>([])
+  const prevCanvasRef = useRef({ w: canvasW, h: canvasH })
+
+  useLayoutEffect(() => {
+    if (!sitePlan) return
+    const prevLayout = prevLayoutRef.current
+    const currentIds = new Set(layout.map(i => i.id))
+    const removedIds = prevLayout
+      .filter(item => !currentIds.has(item.id))
+      .map(item => item.id)
+
+    if (removedIds.length === 0) {
+      // Nothing removed — show new layout immediately (handles additions too)
+      setDisplayLayout(layout)
+      setExitingIds(new Set())
+      prevLayoutRef.current = layout
+      prevCanvasRef.current = { w: canvasW, h: canvasH }
+      return
+    }
+
+    // Freeze ALL items at their old positions while removed items animate out.
+    // This prevents remaining items from jumping to new positions prematurely.
+    setDisplayLayout(prevLayout)
+    setExitingIds(new Set(removedIds))
+    setMinCanvasSize({ ...prevCanvasRef.current })
+
+    const t = setTimeout(() => {
+      // Animation done — now switch to new layout and allow canvas to resize
+      setDisplayLayout(layout)
+      setExitingIds(new Set())
+      setMinCanvasSize(null)
+      prevLayoutRef.current = layout
+      prevCanvasRef.current = { w: canvasW, h: canvasH }
+    }, 300)
+
+    return () => clearTimeout(t)
+  }, [layout, canvasW, canvasH, sitePlan])
+
+  const displayedW = minCanvasSize ? Math.max(canvasW, minCanvasSize.w) : canvasW
+  const displayedH = minCanvasSize ? Math.max(canvasH, minCanvasSize.h) : canvasH
+
+  // Conditional renders AFTER all hooks
+  if (error && !sitePlan) {
     return (
       <div className="flex-1 flex items-center justify-center p-8">
         <div className="max-w-md text-center">
@@ -153,7 +209,7 @@ export default function SiteCanvas({ sitePlan, isLoading, error, onRemove, siteN
     )
   }
 
-  if (isLoading) {
+  if (isLoading && !sitePlan) {
     return (
       <div className="flex-1 flex items-center justify-center">
         <div className="flex items-center gap-3 text-gray-400">
@@ -180,12 +236,10 @@ export default function SiteCanvas({ sitePlan, isLoading, error, onRemove, siteN
     )
   }
 
-  const { metrics, layout, safetyAssumptions } = sitePlan
-  const canvasW = metrics.siteWidthFt * SCALE
-  const canvasH = metrics.siteHeightFt * SCALE
+  const { metrics, safetyAssumptions } = sitePlan
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden">
+    <div className="relative flex-1 flex flex-col overflow-hidden">
       {/* Canvas toolbar */}
       <div className="px-4 py-2 border-b border-gray-800 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-2">
@@ -239,14 +293,22 @@ export default function SiteCanvas({ sitePlan, isLoading, error, onRemove, siteN
         </div>
       </div>
 
+      {/* Subtle reload indicator — only shown when updating an existing plan */}
+      {isLoading && (
+        <div className="absolute top-12 right-4 z-30 flex items-center gap-1.5 px-2 py-1 rounded-md bg-gray-900/80 border border-gray-700/60 text-[10px] text-gray-400 pointer-events-none">
+          <div className="w-3 h-3 border border-blue-500 border-t-transparent rounded-full animate-spin" />
+          Updating…
+        </div>
+      )}
+
       {/* Scrollable canvas area */}
       <div className="flex-1 overflow-auto p-6 bg-gray-950">
         {/* Site bounding box */}
         <div
           className="relative bg-slate-900 border border-slate-700 rounded shadow-xl shadow-black/40"
-          style={{ width: canvasW, height: canvasH, minWidth: canvasW, minHeight: canvasH }}
+          style={{ width: displayedW, height: displayedH, minWidth: displayedW, minHeight: displayedH, transition: 'width 0.28s ease-out, height 0.28s ease-out' }}
         >
-          <GridLines widthFt={metrics.siteWidthFt} heightFt={metrics.siteHeightFt} />
+          <GridLines widthFt={Math.round(displayedW / SCALE)} heightFt={Math.round(displayedH / SCALE)} />
 
           {/* Perimeter margin indicator */}
           <div
@@ -256,11 +318,51 @@ export default function SiteCanvas({ sitePlan, isLoading, error, onRemove, siteN
               top: safetyAssumptions.perimeterMarginFt * SCALE,
               width: (metrics.siteWidthFt - 2 * safetyAssumptions.perimeterMarginFt) * SCALE,
               height: (metrics.siteHeightFt - 2 * safetyAssumptions.perimeterMarginFt) * SCALE,
+              transition: 'width 0.28s ease-out, height 0.28s ease-out',
             }}
           />
 
-          {/* Layout items */}
-          {layout.map(item => <LayoutBlock key={item.id} item={item} onRemove={onRemove} />)}
+          {/* Service aisle between battery zone and transformer zone */}
+          {(() => {
+            const batteryItems = displayLayout.filter(i => i.zone === 'battery')
+            const transformerItems = displayLayout.filter(i => i.zone === 'transformer')
+            if (batteryItems.length === 0 || transformerItems.length === 0) return null
+            const aisleTopFt = Math.max(...batteryItems.map(i => i.yFt + i.heightFt))
+            const aisleBottomFt = Math.min(...transformerItems.map(i => i.yFt))
+            const aisleH = (aisleBottomFt - aisleTopFt) * SCALE
+            if (aisleH <= 0) return null
+            return (
+              <div
+                className="absolute left-0 right-0 flex items-center justify-center pointer-events-none"
+                style={{ top: aisleTopFt * SCALE, height: aisleH }}
+              >
+                {/* Dashed top border */}
+                <div className="absolute top-0 left-0 right-0 border-t border-dashed border-yellow-700/40" />
+                {/* Dashed bottom border */}
+                <div className="absolute bottom-0 left-0 right-0 border-t border-dashed border-yellow-700/40" />
+                {/* Background tint */}
+                <div className="absolute inset-0 bg-yellow-900/10" />
+                {/* Label */}
+                <div className="relative flex items-center gap-2 z-10">
+                  <div className="h-px w-8 bg-yellow-700/50" />
+                  <span className="text-[9px] font-medium tracking-widest uppercase text-yellow-600/70 whitespace-nowrap">
+                    Service Aisle ({safetyAssumptions.transformerBufferFt} ft)
+                  </span>
+                  <div className="h-px w-8 bg-yellow-700/50" />
+                </div>
+              </div>
+            )
+          })()}
+
+          {/* Layout items — rendered from frozen displayLayout during exit animation */}
+          {displayLayout.map(item => (
+            <LayoutBlock
+              key={item.id}
+              item={item}
+              isExiting={exitingIds.has(item.id)}
+              onRemove={exitingIds.has(item.id) ? undefined : onRemove}
+            />
+          ))}
 
           {/* Dimension labels */}
           <div className="absolute -bottom-5 left-0 right-0 flex justify-center">

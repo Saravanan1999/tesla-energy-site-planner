@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"sort"
 
 	"github.com/stygianphantom/tesla-energy-site-planner/internal/models"
 )
@@ -13,7 +14,7 @@ const (
 	sideClearanceFt        = 2
 	rowAisleFt             = 5
 	transformerBufferFt    = 10
-	maxSiteWidthFt         = 100
+	maxSiteWidthFt         = 120
 	safetyVersion          = "1.0"
 	batteriesPerTransformer = 2
 
@@ -168,16 +169,30 @@ func (s *SitePlanService) Generate(ctx context.Context, req models.GenerateSiteP
 	}, nil
 }
 
-// packRows places a slice of devices into rows within usableWidthFt, starting at (startX, startY).
-// Returns the layout items, the Y coordinate of the bottom of the last row, and any error.
+// packRows places devices into rows using First Fit Decreasing (FFD):
+// sort by width descending, then place each device into the first row it fits,
+// opening a new row only when necessary. This maximises row utilisation.
 func packRows(devices []deviceSpec, zone models.LayoutZone, startX, startY, usableWidthFt int, prefix string) ([]models.LayoutItem, int, *models.APIError) {
-	var items []models.LayoutItem
-	currentX := startX
-	currentY := startY
-	rowMaxHeight := 0
-	endY := startY
+	// Validate and sort a working copy by width descending
+	sorted := make([]deviceSpec, len(devices))
+	copy(sorted, devices)
+	sort.Slice(sorted, func(i, j int) bool {
+		return sorted[i].widthFt > sorted[j].widthFt
+	})
 
-	for i, d := range devices {
+	type rowState struct {
+		y     int
+		maxH  int
+		nextX int // next available X position in this row
+		items []models.LayoutItem
+	}
+
+	var rows []rowState
+	limit := startX + usableWidthFt
+	// instanceIndex tracks per-device instance count so IDs are stable across layout changes
+	instanceIndex := make(map[int64]int)
+
+	for _, d := range sorted {
 		if d.widthFt > usableWidthFt {
 			return nil, 0, &models.APIError{
 				Code:    models.ErrorLayoutNotFeasible,
@@ -185,35 +200,66 @@ func packRows(devices []deviceSpec, zone models.LayoutZone, startX, startY, usab
 			}
 		}
 
-		// Wrap to next row if device doesn't fit
-		if currentX+d.widthFt > startX+usableWidthFt {
-			currentX = startX
-			currentY += rowMaxHeight + rowAisleFt
-			rowMaxHeight = 0
-		}
+		idx := instanceIndex[d.id]
+		instanceIndex[d.id]++
 
-		items = append(items, models.LayoutItem{
-			ID:        fmt.Sprintf("%s-%d", prefix, i),
+		item := models.LayoutItem{
+			ID:        fmt.Sprintf("%s-%d-%d", prefix, d.id, idx),
 			DeviceID:  d.id,
 			Type:      models.DeviceType(d.name),
 			Label:     d.name,
 			Zone:      zone,
-			XFt:       currentX,
-			YFt:       currentY,
 			WidthFt:   d.widthFt,
 			HeightFt:  d.heightFt,
 			EnergyMWh: d.energyMWh,
 			Cost:      d.cost,
-		})
-
-		currentX += d.widthFt + sideClearanceFt
-		if d.heightFt > rowMaxHeight {
-			rowMaxHeight = d.heightFt
 		}
-		endY = currentY + rowMaxHeight
+
+		// Try to fit into an existing row (first fit)
+		placed := false
+		for ri := range rows {
+			if rows[ri].nextX+d.widthFt <= limit {
+				item.XFt = rows[ri].nextX
+				item.YFt = rows[ri].y
+				rows[ri].items = append(rows[ri].items, item)
+				rows[ri].nextX += d.widthFt + sideClearanceFt
+				if d.heightFt > rows[ri].maxH {
+					rows[ri].maxH = d.heightFt
+				}
+				placed = true
+				break
+			}
+		}
+
+		if !placed {
+			// Open a new row beneath all existing rows
+			newY := startY
+			if len(rows) > 0 {
+				last := rows[len(rows)-1]
+				newY = last.y + last.maxH + rowAisleFt
+			}
+			item.XFt = startX
+			item.YFt = newY
+			rows = append(rows, rowState{
+				y:     newY,
+				maxH:  d.heightFt,
+				nextX: startX + d.widthFt + sideClearanceFt,
+				items: []models.LayoutItem{item},
+			})
+		}
 	}
 
-	return items, endY, nil
+	// Flatten items and compute endY
+	var allItems []models.LayoutItem
+	endY := startY
+	for _, r := range rows {
+		allItems = append(allItems, r.items...)
+		if bottom := r.y + r.maxH; bottom > endY {
+			endY = bottom
+		}
+	}
+
+	return allItems, endY, nil
 }
 
 func (s *SitePlanService) lookupDevice(ctx context.Context, id int64) (*deviceSpec, error) {
