@@ -23,8 +23,9 @@ func NewSessionService(db *sql.DB) *SessionService {
 // SessionRecord is the raw session as loaded from the DB, with devices
 // deserialized into ConfiguredDevice so they can be passed to SitePlanService.
 type SessionRecord struct {
-	Meta    models.SessionData
-	Devices []models.ConfiguredDevice
+	Meta      models.SessionData
+	Devices   []models.ConfiguredDevice
+	Objective models.OptimizationObjective
 }
 
 func (s *SessionService) Create(ctx context.Context, req models.CreateSessionRequest) (*models.SessionData, *models.APIError) {
@@ -36,6 +37,12 @@ func (s *SessionService) Create(ctx context.Context, req models.CreateSessionReq
 			Message: "Session config is invalid.",
 			Details: []string{"Name is required."},
 		}
+	}
+
+	// Normalize objective
+	objective := string(req.Objective)
+	if objective == "" {
+		objective = string(models.ObjectiveMinArea)
 	}
 
 	// Validate device quantities
@@ -92,21 +99,21 @@ func (s *SessionService) Create(ctx context.Context, req models.CreateSessionReq
 	).Scan(&existingSessionID)
 
 	if err == sql.ErrNoRows {
-		return s.insert(ctx, name, string(devicesJSON))
+		return s.insert(ctx, name, string(devicesJSON), objective)
 	}
 	if err != nil {
 		return nil, &models.APIError{Code: models.ErrorInternal, Message: "Failed to check existing session."}
 	}
-	return s.update(ctx, existingSessionID, name, string(devicesJSON))
+	return s.update(ctx, existingSessionID, name, string(devicesJSON), objective)
 }
 
-func (s *SessionService) insert(ctx context.Context, name, devicesJSON string) (*models.SessionData, *models.APIError) {
+func (s *SessionService) insert(ctx context.Context, name, devicesJSON, objective string) (*models.SessionData, *models.APIError) {
 	sessionID := uuid.New().String()
 	savedAt := time.Now().UTC()
 
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO sessions (session_id, name, devices, saved_at) VALUES (?, ?, ?, ?)`,
-		sessionID, name, devicesJSON, savedAt.Format(time.RFC3339),
+		`INSERT INTO sessions (session_id, name, devices, saved_at, optimization_objective) VALUES (?, ?, ?, ?, ?)`,
+		sessionID, name, devicesJSON, savedAt.Format(time.RFC3339), objective,
 	)
 	if err != nil {
 		return nil, &models.APIError{Code: models.ErrorInternal, Message: "Failed to save session."}
@@ -115,7 +122,7 @@ func (s *SessionService) insert(ctx context.Context, name, devicesJSON string) (
 	return &models.SessionData{SessionID: sessionID, Name: name, SavedAt: savedAt}, nil
 }
 
-// UpdateByID updates an existing session's name and devices by its ID.
+// UpdateByID updates an existing session's name, devices, and objective by its ID.
 func (s *SessionService) UpdateByID(ctx context.Context, sessionID string, req models.CreateSessionRequest) (*models.SessionData, *models.APIError) {
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
@@ -124,6 +131,11 @@ func (s *SessionService) UpdateByID(ctx context.Context, sessionID string, req m
 			Message: "Session config is invalid.",
 			Details: []string{"Name is required."},
 		}
+	}
+
+	objective := string(req.Objective)
+	if objective == "" {
+		objective = string(models.ObjectiveMinArea)
 	}
 
 	// Verify session exists
@@ -141,15 +153,15 @@ func (s *SessionService) UpdateByID(ctx context.Context, sessionID string, req m
 		return nil, &models.APIError{Code: models.ErrorInternal, Message: "Failed to serialize devices."}
 	}
 
-	return s.update(ctx, sessionID, name, string(devicesJSON))
+	return s.update(ctx, sessionID, name, string(devicesJSON), objective)
 }
 
-func (s *SessionService) update(ctx context.Context, sessionID, name, devicesJSON string) (*models.SessionData, *models.APIError) {
+func (s *SessionService) update(ctx context.Context, sessionID, name, devicesJSON, objective string) (*models.SessionData, *models.APIError) {
 	savedAt := time.Now().UTC()
 
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE sessions SET name = ?, devices = ?, saved_at = ? WHERE session_id = ?`,
-		name, devicesJSON, savedAt.Format(time.RFC3339), sessionID,
+		`UPDATE sessions SET name = ?, devices = ?, saved_at = ?, optimization_objective = ? WHERE session_id = ?`,
+		name, devicesJSON, savedAt.Format(time.RFC3339), objective, sessionID,
 	)
 	if err != nil {
 		return nil, &models.APIError{Code: models.ErrorInternal, Message: "Failed to update session."}
@@ -203,10 +215,10 @@ func (s *SessionService) DeleteByID(ctx context.Context, sessionID string) *mode
 }
 
 func (s *SessionService) GetByID(ctx context.Context, sessionID string) (*SessionRecord, *models.APIError) {
-	var name, devicesJSON, savedAtStr string
+	var name, devicesJSON, savedAtStr, objectiveStr string
 	err := s.db.QueryRowContext(ctx,
-		`SELECT name, devices, saved_at FROM sessions WHERE session_id = ?`, sessionID,
-	).Scan(&name, &devicesJSON, &savedAtStr)
+		`SELECT name, devices, saved_at, optimization_objective FROM sessions WHERE session_id = ?`, sessionID,
+	).Scan(&name, &devicesJSON, &savedAtStr, &objectiveStr)
 	if err == sql.ErrNoRows {
 		return nil, &models.APIError{Code: models.ErrorInvalidConfig, Message: "Session not found."}
 	}
@@ -224,8 +236,14 @@ func (s *SessionService) GetByID(ctx context.Context, sessionID string) (*Sessio
 		return nil, &models.APIError{Code: models.ErrorInternal, Message: "Failed to deserialize session devices."}
 	}
 
+	objective := models.OptimizationObjective(objectiveStr)
+	if objective == "" {
+		objective = models.ObjectiveMinArea
+	}
+
 	return &SessionRecord{
-		Meta:    models.SessionData{SessionID: sessionID, Name: name, SavedAt: savedAt},
-		Devices: devices,
+		Meta:      models.SessionData{SessionID: sessionID, Name: name, SavedAt: savedAt},
+		Devices:   devices,
+		Objective: objective,
 	}, nil
 }

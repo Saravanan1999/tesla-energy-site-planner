@@ -22,5 +22,10 @@ func migrate(db *sql.DB) error {
 			saved_at   TEXT    NOT NULL
 		);
 	`)
-	return err
+	if err != nil {
+		return err
+	}
+	// Idempotent column addition — silently ignored if column already exists
+	db.Exec(`ALTER TABLE sessions ADD COLUMN optimization_objective TEXT NOT NULL DEFAULT 'min_area'`)
+	return nil
 }

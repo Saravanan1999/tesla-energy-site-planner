@@ -10,6 +10,7 @@ interface Props {
   siteName?: string
   onSiteNameChange?: (name: string) => void
   nameError?: string | null
+  nameWarning?: string | null
 }
 
 const SCALE = 6 // px per foot
@@ -211,7 +212,7 @@ function GridLines({ widthFt, heightFt }: { widthFt: number; heightFt: number })
   )
 }
 
-export default function SiteCanvas({ sitePlan, isLoading, error, onRemove, siteName, onSiteNameChange, nameError }: Props) {
+export default function SiteCanvas({ sitePlan, isLoading, error, onRemove, siteName, onSiteNameChange, nameError, nameWarning }: Props) {
   // Derive values unconditionally so hooks are always called in the same order
   const layout = sitePlan?.layout ?? []
   const canvasW = sitePlan ? sitePlan.metrics.siteWidthFt * SCALE : 0
@@ -223,6 +224,7 @@ export default function SiteCanvas({ sitePlan, isLoading, error, onRemove, siteN
   const [exitingIds, setExitingIds] = useState<Set<string>>(new Set())
   const [animatingIds, setAnimatingIds] = useState<Set<string>>(new Set())
   const [minCanvasSize, setMinCanvasSize] = useState<{ w: number; h: number } | null>(null)
+  const [suppressSizeTransition, setSuppressSizeTransition] = useState(false)
   const [perimeterTooltip, setPerimeterTooltip] = useState<{ x: number; y: number } | null>(null)
   const [gapTooltip, setGapTooltip] = useState<{ x: number; y: number } | null>(null)
   const [hoveredRow, setHoveredRow] = useState<number | null>(null)
@@ -286,6 +288,10 @@ export default function SiteCanvas({ sitePlan, isLoading, error, onRemove, siteN
       })
       flipMapRef.current = newFlipMap
 
+      // Total time for all FLIP animations after Phase 2 renders:
+      // last stagger delay + 520ms (0.5s transition + buffer)
+      const maxFlipDelay = staggerOrder.length > 0 ? (staggerOrder.length - 1) * 70 + 550 : 0
+
       setDisplayLayout(prevLayout)
       setExitingIds(new Set(removedIds))
       setMinCanvasSize({ ...prevCanvasRef.current })
@@ -297,9 +303,10 @@ export default function SiteCanvas({ sitePlan, isLoading, error, onRemove, siteN
       const t = setTimeout(() => {
         setDisplayLayout(layout)
         setExitingIds(new Set())
-        setMinCanvasSize(null)
         prevLayoutRef.current = layout
         prevCanvasRef.current = { w: canvasW, h: canvasH }
+        // Wait for all FLIP slide animations to finish before allowing canvas to shrink
+        setTimeout(() => setMinCanvasSize(null), maxFlipDelay)
         setTimeout(() => { flipMapRef.current = new Map() }, 350)
         // If all/most items are new (e.g. session load), play grow animation
         if (addedItems.length > 0) {
@@ -320,6 +327,9 @@ export default function SiteCanvas({ sitePlan, isLoading, error, onRemove, siteN
     }
 
     if (addedItems.length > 0) {
+      // Canvas is growing — snap immediately so new devices don't appear outside the boundary
+      setSuppressSizeTransition(true)
+      requestAnimationFrame(() => setSuppressSizeTransition(false))
       // Detect existing items that shifted position to make room for the new battery.
       const movedItems = layout.filter(i => prevIds.has(i.id)).filter(i => {
         const prev = prevLayout.find(p => p.id === i.id)
@@ -354,6 +364,8 @@ export default function SiteCanvas({ sitePlan, isLoading, error, onRemove, siteN
     }
 
     // No structural change — update positions immediately
+    const growing = canvasW > prevCanvasRef.current.w || canvasH > prevCanvasRef.current.h
+    if (growing) { setSuppressSizeTransition(true); requestAnimationFrame(() => setSuppressSizeTransition(false)) }
     setDisplayLayout(layout)
     setExitingIds(new Set())
     prevLayoutRef.current = layout
@@ -657,9 +669,10 @@ export default function SiteCanvas({ sitePlan, isLoading, error, onRemove, siteN
               onChange={e => onSiteNameChange?.(e.target.value)}
               placeholder="site name"
               className={`h-6 px-2 text-xs text-gray-300 placeholder-gray-600 bg-gray-800/60 border rounded-md outline-none focus:text-white transition-colors w-36
-                ${nameError ? 'border-red-500/70 focus:border-red-400' : 'border-gray-700/60 focus:border-gray-500'}`}
+                ${nameError ? 'border-red-500/70 focus:border-red-400' : nameWarning ? 'border-amber-500/60 focus:border-amber-400' : 'border-gray-700/60 focus:border-gray-500'}`}
             />
             {nameError && <p className="text-[10px] text-red-400 mt-0.5 whitespace-nowrap">Enter a name to save</p>}
+            {!nameError && nameWarning && <p className="text-[10px] text-amber-400/80 mt-0.5 whitespace-nowrap">{nameWarning}</p>}
           </div>
         </div>
         <div className="flex items-center gap-4 text-xs text-gray-500">
@@ -780,7 +793,7 @@ export default function SiteCanvas({ sitePlan, isLoading, error, onRemove, siteN
         {/* Site bounding box */}
         <div
           className="relative bg-slate-900 border border-slate-700 rounded shadow-xl shadow-black/40"
-          style={{ width: displayedW, height: displayedH, minWidth: displayedW, minHeight: displayedH, transition: 'width 0.28s ease-out, height 0.28s ease-out' }}
+          style={{ width: displayedW, height: displayedH, minWidth: displayedW, minHeight: displayedH, transition: suppressSizeTransition ? 'none' : 'width 0.28s ease-out, height 0.28s ease-out' }}
           onMouseMove={(e) => {
             const rect = e.currentTarget.getBoundingClientRect()
             const localY = (e.clientY - rect.top) / zoom

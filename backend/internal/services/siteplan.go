@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"math"
 	"sort"
 
 	"github.com/stygianphantom/tesla-energy-site-planner/internal/models"
@@ -47,6 +48,12 @@ func (s *SitePlanService) Generate(ctx context.Context, req models.GenerateSiteP
 			Code:    models.ErrorInvalidConfig,
 			Message: "at least one device must be configured",
 		}
+	}
+
+	// Normalize objective
+	objective := req.Objective
+	if objective == "" {
+		objective = models.ObjectiveMinArea
 	}
 
 	// Step 1: Expand battery instances from DB
@@ -139,6 +146,9 @@ func (s *SitePlanService) Generate(ctx context.Context, req models.GenerateSiteP
 	siteWidthFt := maxOccupiedX + perimeterMarginFt
 	siteHeightFt := maxOccupiedY + perimeterMarginFt
 
+	// Step 7: Compute optimization suggestion (errors silently ignored)
+	suggestion, _ := s.computeSuggestion(ctx, req.Devices, objective)
+
 	return &models.SitePlanData{
 		RequestedDevices: req.Devices,
 		Metrics: models.SiteMetrics{
@@ -161,7 +171,160 @@ func (s *SitePlanService) Generate(ctx context.Context, req models.GenerateSiteP
 			MaxUsableWidthFt:    maxUsableWidthFt,
 			Version:             safetyVersion,
 		},
+		Objective:  objective,
+		Suggestion: suggestion,
 	}, nil
+}
+
+// computeSuggestion finds the best single-type device swap that improves the objective.
+// It uses LCM-based integer energy matching to ensure exact energy equivalence.
+// Assumes device energies are whole-number MWh values.
+func (s *SitePlanService) computeSuggestion(ctx context.Context, configuredDevices []models.ConfiguredDevice, objective models.OptimizationObjective) (*models.OptimizationSuggestion, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, name, width_ft, height_ft, energy_mwh, cost FROM devices WHERE category = 'battery'`,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	catalog := make(map[int64]deviceSpec)
+	var allDevices []deviceSpec
+	for rows.Next() {
+		var d deviceSpec
+		if err := rows.Scan(&d.id, &d.name, &d.widthFt, &d.heightFt, &d.energyMWh, &d.cost); err != nil {
+			return nil, err
+		}
+		catalog[d.id] = d
+		allDevices = append(allDevices, d)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	type candidate struct {
+		srcID       int64
+		srcLabel    string
+		srcQty      int
+		tgtID       int64
+		tgtLabel    string
+		tgtQty      int
+		deltaArea   int
+		deltaCost   int
+		deltaEnergy float64
+		improvement float64
+		reason      string
+	}
+
+	var best *candidate
+
+	for _, cd := range configuredDevices {
+		if cd.Quantity <= 0 {
+			continue
+		}
+		src, ok := catalog[cd.ID]
+		if !ok {
+			continue
+		}
+
+		srcE := int(math.Round(src.energyMWh))
+		if srcE <= 0 {
+			continue
+		}
+
+		for _, tgt := range allDevices {
+			if tgt.id == src.id {
+				continue
+			}
+			tgtE := int(math.Round(tgt.energyMWh))
+			if tgtE <= 0 {
+				continue
+			}
+
+			// Find minimum source qty q and target qty m for exact energy match:
+			// q = tgtE / gcd(srcE, tgtE),  m = srcE / gcd(srcE, tgtE)
+			// so that q * srcE == m * tgtE == LCM(srcE, tgtE)
+			g := gcd(srcE, tgtE)
+			q := tgtE / g
+			m := srcE / g
+
+			if q > cd.Quantity {
+				continue // not enough source devices for this swap
+			}
+
+			deltaArea := (m * tgt.widthFt * tgt.heightFt) - (q * src.widthFt * src.heightFt)
+			deltaCost := (m * tgt.cost) - (q * src.cost)
+			deltaEnergy := float64(m)*tgt.energyMWh - float64(q)*src.energyMWh
+
+			var improvement float64
+			var reason string
+
+			switch objective {
+			case models.ObjectiveMinArea:
+				improvement = float64(-deltaArea)
+				if improvement <= 0 {
+					continue
+				}
+				reason = fmt.Sprintf("%s stores the same %g MWh in %d ft² less space.", tgt.name, float64(q)*src.energyMWh, -deltaArea)
+
+			case models.ObjectiveMinCost:
+				improvement = float64(-deltaCost)
+				if improvement <= 0 {
+					continue
+				}
+				reason = fmt.Sprintf("%d×%s delivers the same %g MWh at %s less cost.", m, tgt.name, float64(q)*src.energyMWh, formatDeltaCost(-deltaCost))
+
+			case models.ObjectiveMaxDensity:
+				srcDensity := src.energyMWh / float64(src.widthFt*src.heightFt)
+				tgtDensity := tgt.energyMWh / float64(tgt.widthFt*tgt.heightFt)
+				improvement = tgtDensity - srcDensity
+				if improvement <= 0 {
+					continue
+				}
+				reason = fmt.Sprintf("%s has higher energy density (%.4f MWh/ft²) than %s (%.4f MWh/ft²).", tgt.name, tgtDensity, src.name, srcDensity)
+			}
+
+			if best == nil || improvement > best.improvement {
+				best = &candidate{
+					srcID: src.id, srcLabel: src.name, srcQty: q,
+					tgtID: tgt.id, tgtLabel: tgt.name, tgtQty: m,
+					deltaArea: deltaArea, deltaCost: deltaCost, deltaEnergy: deltaEnergy,
+					improvement: improvement, reason: reason,
+				}
+			}
+		}
+	}
+
+	if best == nil {
+		return nil, nil
+	}
+
+	return &models.OptimizationSuggestion{
+		FromDeviceID:   best.srcID,
+		FromLabel:      best.srcLabel,
+		FromQty:        best.srcQty,
+		ToDeviceID:     best.tgtID,
+		ToLabel:        best.tgtLabel,
+		ToQty:          best.tgtQty,
+		DeltaAreaSqFt:  best.deltaArea,
+		DeltaCost:      best.deltaCost,
+		DeltaEnergyMWh: best.deltaEnergy,
+		Reason:         best.reason,
+	}, nil
+}
+
+func gcd(a, b int) int {
+	for b != 0 {
+		a, b = b, a%b
+	}
+	return a
+}
+
+func formatDeltaCost(n int) string {
+	if n >= 1000 {
+		return fmt.Sprintf("$%dk", n/1000)
+	}
+	return fmt.Sprintf("$%d", n)
 }
 
 // findOptimalUsableWidth searches all integer widths from the minimum that fits

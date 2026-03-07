@@ -138,7 +138,8 @@ func (h *SessionHandler) GetSession(w http.ResponseWriter, r *http.Request) {
 	}
 
 	plan, apiErr := h.sitePlanSvc.Generate(r.Context(), models.GenerateSitePlanRequest{
-		Devices: record.Devices,
+		Devices:   record.Devices,
+		Objective: record.Objective,
 	})
 	if apiErr != nil {
 		writeSessionSitePlanError(w, http.StatusUnprocessableEntity, apiErr)

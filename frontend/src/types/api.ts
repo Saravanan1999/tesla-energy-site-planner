@@ -49,12 +49,31 @@ export interface LayoutItem {
   cost: number
 }
 
+export type OptimizationObjective = 'min_area' | 'min_cost' | 'max_density' | 'user_plan'
+
+export interface OptimizationSuggestion {
+  fromDeviceId: number
+  fromLabel: string
+  fromQty: number
+  toDeviceId: number
+  toLabel: string
+  toQty: number
+  deltaAreaSqFt: number
+  deltaCost: number
+  deltaEnergyMWh: number
+  reason: string
+  /** When present, Apply replaces the entire device selection with this map */
+  newQuantities?: Record<number, number>
+}
+
 export interface SitePlanData {
   requestedDevices: ConfiguredDevice[]
   metrics: SiteMetrics
   layout: LayoutItem[]
   safetyAssumptions: SafetyAssumptions
   warnings?: string[]
+  objective: OptimizationObjective
+  suggestion?: OptimizationSuggestion
 }
 
 export interface SessionData {
@@ -80,3 +99,6 @@ export interface APIResponse<T> {
   data?: T
   error?: APIError
 }
+
+export interface OptimalEntry { label: string; plan: SitePlanData }
+export type OptimalLayouts = Partial<Record<'min_area' | 'min_cost' | 'max_density', OptimalEntry | null>>

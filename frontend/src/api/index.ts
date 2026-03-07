@@ -2,6 +2,7 @@ import type {
   APIResponse,
   ConfiguredDevice,
   Device,
+  OptimizationObjective,
   SessionData,
   SessionSitePlanData,
   SitePlanData,
@@ -33,11 +34,11 @@ async function put<T>(path: string, body: unknown): Promise<APIResponse<T>> {
 export const fetchDevices = () =>
   get<{ devices: Device[] }>('/api/devices')
 
-export const generateSitePlan = (devices: ConfiguredDevice[]) =>
-  post<SitePlanData>('/api/site-plan', { devices })
+export const generateSitePlan = (devices: ConfiguredDevice[], objective?: OptimizationObjective) =>
+  post<SitePlanData>('/api/site-plan', { devices, objective: objective ?? 'min_area' })
 
-export const createSession = (name: string, devices: ConfiguredDevice[]) =>
-  post<SessionData>('/api/sessions', { name, devices })
+export const createSession = (name: string, devices: ConfiguredDevice[], objective?: OptimizationObjective) =>
+  post<SessionData>('/api/sessions', { name, devices, objective: objective ?? 'min_area' })
 
 export const listSessions = () =>
   get<{ sessions: SessionData[] }>('/api/sessions')
@@ -45,8 +46,8 @@ export const listSessions = () =>
 export const getSession = (sessionId: string) =>
   get<SessionSitePlanData>(`/api/sessions/${sessionId}`)
 
-export const updateSession = (sessionId: string, name: string, devices: ConfiguredDevice[]) =>
-  put<SessionData>(`/api/sessions/${sessionId}`, { name, devices })
+export const updateSession = (sessionId: string, name: string, devices: ConfiguredDevice[], objective?: OptimizationObjective) =>
+  put<SessionData>(`/api/sessions/${sessionId}`, { name, devices, objective: objective ?? 'min_area' })
 
 export const deleteSession = (sessionId: string) =>
   fetch(`/api/sessions/${sessionId}`, { method: 'DELETE' })
