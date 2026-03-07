@@ -379,106 +379,200 @@ export default function SiteCanvas({ sitePlan, isLoading, error, onRemove, siteN
   const exportCanvas = (format: 'png' | 'pdf') => {
     if (!sitePlan) return
     setShowExportMenu(false)
+    const { metrics, safetyAssumptions: sa } = sitePlan
     const name = siteName?.trim() || 'site-layout'
-    const S = SCALE * 2 // render at 2× for crispness
-    const pad = 24 // padding around the site box
-    const W = sitePlan.metrics.siteWidthFt * S
-    const H = sitePlan.metrics.siteHeightFt * S
+    const S = SCALE * 2
+    const pad = 56
+    const W = metrics.siteWidthFt * S
+    const H = metrics.siteHeightFt * S
     const totalW = W + pad * 2
-    const totalH = H + pad * 2
+    const totalH = H + pad * 2 + 24 // extra bottom for site name
 
     const canvas = document.createElement('canvas')
     canvas.width = totalW
     canvas.height = totalH
     const ctx = canvas.getContext('2d')!
 
-    // Background
+    // ── Helpers ──────────────────────────────────────────────────────────
+    const drawHatch = (x: number, y: number, w: number, h: number, color = 'rgba(71,85,105,0.3)') => {
+      ctx.save()
+      ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip()
+      ctx.strokeStyle = color; ctx.lineWidth = 1.5
+      for (let i = -(h + w); i < (h + w); i += 14) {
+        ctx.beginPath(); ctx.moveTo(x + i, y); ctx.lineTo(x + i + h, y + h); ctx.stroke()
+      }
+      ctx.restore()
+    }
+
+    // ── Outer background ─────────────────────────────────────────────────
     ctx.fillStyle = '#020617'
     ctx.fillRect(0, 0, totalW, totalH)
 
     ctx.save()
     ctx.translate(pad, pad)
 
-    // Site box background
+    // ── Site box ─────────────────────────────────────────────────────────
     ctx.fillStyle = '#0f172a'
     ctx.fillRect(0, 0, W, H)
 
     // Grid lines (10 ft cells)
-    ctx.strokeStyle = 'rgba(51,65,85,0.5)'
-    ctx.lineWidth = 1
-    for (let x = 0; x <= sitePlan.metrics.siteWidthFt; x += 10) {
+    ctx.strokeStyle = 'rgba(51,65,85,0.45)'; ctx.lineWidth = 0.75
+    for (let x = 0; x <= metrics.siteWidthFt; x += 10) {
       ctx.beginPath(); ctx.moveTo(x * S, 0); ctx.lineTo(x * S, H); ctx.stroke()
     }
-    for (let y = 0; y <= sitePlan.metrics.siteHeightFt; y += 10) {
+    for (let y = 0; y <= metrics.siteHeightFt; y += 10) {
       ctx.beginPath(); ctx.moveTo(0, y * S); ctx.lineTo(W, y * S); ctx.stroke()
     }
 
-    // Perimeter margin dashed border
-    const pm = sitePlan.safetyAssumptions.perimeterMarginFt * S
-    ctx.strokeStyle = 'rgba(100,116,139,0.7)'
-    ctx.lineWidth = 1.5
-    ctx.setLineDash([8, 6])
-    ctx.strokeRect(pm, pm, W - pm * 2, H - pm * 2)
+    // ── Perimeter strips ─────────────────────────────────────────────────
+    const pm = sa.perimeterMarginFt * S
+    drawHatch(0, 0, W, pm)                        // top
+    drawHatch(0, H - pm, W, pm)                   // bottom
+    drawHatch(0, pm, pm, H - 2 * pm)              // left
+    drawHatch(W - pm, pm, pm, H - 2 * pm)         // right
+
+    // Dashed inner border
+    ctx.strokeStyle = 'rgba(100,116,139,0.65)'; ctx.lineWidth = 1.5; ctx.setLineDash([8, 6])
+    ctx.strokeRect(pm, pm, W - 2 * pm, H - 2 * pm)
     ctx.setLineDash([])
 
-    // Layout items
+    // Perimeter labels
+    const perimLabel = `SAFETY PERIMETER — ${sa.perimeterMarginFt} ft`
+    ctx.fillStyle = 'rgba(100,116,139,0.75)'; ctx.font = 'bold 9px system-ui,sans-serif'
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+    ctx.fillText(perimLabel, W / 2, pm / 2)
+    ctx.fillText(perimLabel, W / 2, H - pm / 2)
+    ctx.save(); ctx.translate(pm / 2, H / 2); ctx.rotate(-Math.PI / 2); ctx.fillText(perimLabel, 0, 0); ctx.restore()
+    ctx.save(); ctx.translate(W - pm / 2, H / 2); ctx.rotate(Math.PI / 2); ctx.fillText(perimLabel, 0, 0); ctx.restore()
+
+    // ── Service aisle ────────────────────────────────────────────────────
+    const batteryItems = displayLayout.filter(i => i.zone === 'battery' && !exitingIds.has(i.id))
+    const transformerItems = displayLayout.filter(i => i.zone === 'transformer' && !exitingIds.has(i.id))
+    if (batteryItems.length > 0 && transformerItems.length > 0) {
+      const aisleTopFt = Math.max(...batteryItems.map(i => i.yFt + i.heightFt))
+      const aisleBottomFt = Math.min(...transformerItems.map(i => i.yFt))
+      if (aisleBottomFt > aisleTopFt) {
+        const aT = aisleTopFt * S, aH = (aisleBottomFt - aisleTopFt) * S
+        ctx.fillStyle = 'rgba(120,53,15,0.22)'; ctx.fillRect(0, aT, W, aH)
+        ctx.strokeStyle = 'rgba(217,119,6,0.5)'; ctx.lineWidth = 1.5; ctx.setLineDash([8, 6])
+        ctx.beginPath(); ctx.moveTo(0, aT); ctx.lineTo(W, aT); ctx.stroke()
+        ctx.beginPath(); ctx.moveTo(0, aT + aH); ctx.lineTo(W, aT + aH); ctx.stroke()
+        ctx.setLineDash([])
+        const aisleText = `SERVICE AISLE — ${sa.transformerBufferFt} ft`
+        ctx.font = 'bold 10px system-ui,sans-serif'
+        const tw = ctx.measureText(aisleText).width
+        const pw = tw + 24, ph = 20, px2 = W / 2 - pw / 2, py2 = aT + aH / 2 - ph / 2
+        ctx.fillStyle = 'rgba(120,53,15,0.7)'; ctx.beginPath(); ctx.roundRect(px2, py2, pw, ph, 4); ctx.fill()
+        ctx.strokeStyle = 'rgba(217,119,6,0.4)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.roundRect(px2, py2, pw, ph, 4); ctx.stroke()
+        ctx.fillStyle = '#f59e0b'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+        ctx.fillText(aisleText, W / 2, aT + aH / 2)
+      }
+    }
+
+    // ── Row aisles between battery rows ──────────────────────────────────
+    const batteryRowYs = [...new Set(batteryItems.map(i => i.yFt))].sort((a, b) => a - b)
+    batteryRowYs.slice(0, -1).forEach((yFt, idx) => {
+      const rowH = batteryItems.find(i => i.yFt === yFt)?.heightFt ?? 0
+      const aT = (yFt + rowH) * S, aH = batteryRowYs[idx + 1] * S - aT
+      if (aH <= 0) return
+      ctx.fillStyle = 'rgba(30,41,59,0.5)'; ctx.fillRect(0, aT, W, aH)
+      ctx.strokeStyle = 'rgba(100,116,139,0.4)'; ctx.lineWidth = 1; ctx.setLineDash([6, 5])
+      ctx.beginPath(); ctx.moveTo(0, aT); ctx.lineTo(W, aT); ctx.stroke()
+      ctx.beginPath(); ctx.moveTo(0, aT + aH); ctx.lineTo(W, aT + aH); ctx.stroke()
+      ctx.setLineDash([])
+      ctx.fillStyle = 'rgba(100,116,139,0.75)'; ctx.font = 'bold 9px system-ui,sans-serif'
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+      ctx.fillText(`ROW AISLE — ${sa.rowAisleFt} ft`, W / 2, aT + aH / 2)
+    })
+
+    // ── Battery row labels ────────────────────────────────────────────────
+    batteryRowYs.forEach((yFt, idx) => {
+      ctx.fillStyle = 'rgba(255,255,255,0.18)'; ctx.font = 'bold 8px system-ui,sans-serif'
+      ctx.textAlign = 'left'; ctx.textBaseline = 'top'
+      ctx.fillText(`BATTERY ROW ${idx + 1}`, pm + 4, yFt * S + 3)
+    })
+
+    // ── Side clearance gaps ───────────────────────────────────────────────
+    const rowMap = new Map<string, typeof batteryItems>()
+    for (const item of [...batteryItems, ...transformerItems]) {
+      const key = `${item.zone}-${item.yFt}`
+      if (!rowMap.has(key)) rowMap.set(key, [])
+      rowMap.get(key)!.push(item)
+    }
+    for (const items of rowMap.values()) {
+      if (items.length < 2) continue
+      const sorted = [...items].sort((a, b) => a.xFt - b.xFt)
+      for (let i = 0; i < sorted.length - 1; i++) {
+        const left = sorted[i]
+        const gx = (left.xFt + left.widthFt) * S, gy = left.yFt * S
+        const gw = sa.sideClearanceFt * S, gh = left.heightFt * S
+        ctx.strokeStyle = 'rgba(255,255,255,0.12)'; ctx.lineWidth = 1; ctx.setLineDash([4, 4])
+        ctx.beginPath(); ctx.moveTo(gx, gy + 3); ctx.lineTo(gx, gy + gh - 3); ctx.stroke()
+        ctx.beginPath(); ctx.moveTo(gx + gw, gy + 3); ctx.lineTo(gx + gw, gy + gh - 3); ctx.stroke()
+        ctx.setLineDash([])
+        ctx.save(); ctx.translate(gx + gw / 2, gy + gh / 2); ctx.rotate(-Math.PI / 2)
+        ctx.fillStyle = 'rgba(100,116,139,0.65)'; ctx.font = '7px system-ui,sans-serif'
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+        ctx.fillText(`${sa.sideClearanceFt} ft`, 0, 0); ctx.restore()
+      }
+    }
+
+    // ── Layout items ──────────────────────────────────────────────────────
     const labelCounters: Record<string, number> = {}
     for (const item of displayLayout) {
       if (exitingIds.has(item.id)) continue
       labelCounters[item.label] = (labelCounters[item.label] ?? 0) + 1
       const label = `${item.label} #${labelCounters[item.label]}`
-      const x = item.xFt * S, y = item.yFt * S
-      const w = item.widthFt * S, h = item.heightFt * S
-      const r = 4
+      const x = item.xFt * S, y = item.yFt * S, w = item.widthFt * S, h = item.heightFt * S, r = 4
 
       if (item.zone === 'battery') {
-        // Fill
-        ctx.fillStyle = '#1e3a5f'
-        ctx.beginPath(); ctx.roundRect(x, y, w, h, r); ctx.fill()
-        // Border
-        ctx.strokeStyle = '#3b82f6'; ctx.lineWidth = 1.5
-        ctx.beginPath(); ctx.roundRect(x, y, w, h, r); ctx.stroke()
-        // Segments
+        ctx.fillStyle = '#1e3a5f'; ctx.beginPath(); ctx.roundRect(x, y, w, h, r); ctx.fill()
+        ctx.strokeStyle = '#3b82f6'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.roundRect(x, y, w, h, r); ctx.stroke()
         const segs = Math.max(1, Math.round(item.widthFt / 10))
         ctx.strokeStyle = 'rgba(59,130,246,0.25)'; ctx.lineWidth = 1
-        for (let i = 1; i < segs; i++) {
-          const sx = x + (w / segs) * i
-          ctx.beginPath(); ctx.moveTo(sx, y + 2); ctx.lineTo(sx, y + h - 2); ctx.stroke()
+        for (let j = 1; j < segs; j++) {
+          const sx = x + (w / segs) * j
+          ctx.beginPath(); ctx.moveTo(sx, y + 3); ctx.lineTo(sx, y + h - 3); ctx.stroke()
         }
-        // Label
-        ctx.fillStyle = '#93c5fd'
-        ctx.font = `bold ${Math.max(9, S - 3)}px system-ui, sans-serif`
+        ctx.fillStyle = '#93c5fd'; ctx.font = `bold ${Math.max(9, Math.min(13, h * 0.28))}px system-ui,sans-serif`
         ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
         ctx.fillText(label, x + w / 2, y + h / 2, w - 8)
       } else {
-        // Transformer fill + border
-        ctx.fillStyle = '#78350f'
-        ctx.beginPath(); ctx.roundRect(x, y, w, h, r); ctx.fill()
-        ctx.strokeStyle = '#d97706'; ctx.lineWidth = 1.5
-        ctx.beginPath(); ctx.roundRect(x, y, w, h, r); ctx.stroke()
-        // Lightning bolt
-        const cx = x + w / 2, cy = y + h / 2 - h * 0.05
-        const bh = h * 0.45, bw = w * 0.25
-        ctx.fillStyle = '#fbbf24'
-        ctx.beginPath()
-        ctx.moveTo(cx + bw * 0.4, cy - bh / 2)
-        ctx.lineTo(cx - bw * 0.6, cy + bh * 0.1)
-        ctx.lineTo(cx + bw * 0.1, cy + bh * 0.1)
-        ctx.lineTo(cx - bw * 0.4, cy + bh / 2)
-        ctx.lineTo(cx + bw * 0.6, cy - bh * 0.1)
-        ctx.lineTo(cx - bw * 0.1, cy - bh * 0.1)
+        ctx.fillStyle = '#78350f'; ctx.beginPath(); ctx.roundRect(x, y, w, h, r); ctx.fill()
+        ctx.strokeStyle = '#d97706'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.roundRect(x, y, w, h, r); ctx.stroke()
+        const cx = x + w / 2, cy = y + h * 0.42, bh = h * 0.42, bw = w * 0.22
+        ctx.fillStyle = '#fbbf24'; ctx.beginPath()
+        ctx.moveTo(cx + bw * 0.4, cy - bh / 2); ctx.lineTo(cx - bw * 0.6, cy + bh * 0.1)
+        ctx.lineTo(cx + bw * 0.1, cy + bh * 0.1); ctx.lineTo(cx - bw * 0.4, cy + bh / 2)
+        ctx.lineTo(cx + bw * 0.6, cy - bh * 0.1); ctx.lineTo(cx - bw * 0.1, cy - bh * 0.1)
         ctx.closePath(); ctx.fill()
-        // Label
-        ctx.fillStyle = '#fcd34d'
-        ctx.font = `bold ${Math.max(8, S - 4)}px system-ui, sans-serif`
+        ctx.fillStyle = '#fcd34d'; ctx.font = `bold ${Math.max(8, Math.min(11, h * 0.22))}px system-ui,sans-serif`
         ctx.textAlign = 'center'; ctx.textBaseline = 'bottom'
-        ctx.fillText(label, x + w / 2, y + h - 4, w - 8)
+        ctx.fillText(label, x + w / 2, y + h - 3, w - 8)
       }
     }
 
+    // ── Site border ───────────────────────────────────────────────────────
+    ctx.strokeStyle = 'rgba(71,85,105,0.5)'; ctx.lineWidth = 1.5; ctx.setLineDash([])
+    ctx.strokeRect(0, 0, W, H)
+
     ctx.restore()
 
-    // Download
+    // ── Dimension labels ──────────────────────────────────────────────────
+    ctx.fillStyle = 'rgba(100,116,139,0.65)'; ctx.font = '11px system-ui,sans-serif'
+    ctx.textAlign = 'center'; ctx.textBaseline = 'top'
+    ctx.fillText(`${metrics.siteWidthFt} ft`, pad + W / 2, pad + H + 8)
+    ctx.save(); ctx.translate(pad - 10, pad + H / 2); ctx.rotate(-Math.PI / 2)
+    ctx.textAlign = 'center'; ctx.fillText(`${metrics.siteHeightFt} ft`, 0, 0); ctx.restore()
+
+    // ── Site name ─────────────────────────────────────────────────────────
+    if (siteName?.trim()) {
+      ctx.fillStyle = 'rgba(148,163,184,0.8)'; ctx.font = 'bold 13px system-ui,sans-serif'
+      ctx.textAlign = 'left'; ctx.textBaseline = 'bottom'
+      ctx.fillText(siteName.trim(), pad, pad - 8)
+    }
+
+    // ── Download ──────────────────────────────────────────────────────────
     canvas.toBlob((blob: Blob | null) => {
       if (!blob) return
       const url = URL.createObjectURL(blob)
