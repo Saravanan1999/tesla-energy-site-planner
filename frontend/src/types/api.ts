@@ -36,6 +36,7 @@ export interface SiteMetrics {
 
 export interface LayoutItem {
   id: string
+  deviceId: number
   type: string
   label: string
   zone: 'battery' | 'transformer'

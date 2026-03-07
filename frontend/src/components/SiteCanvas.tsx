@@ -4,50 +4,113 @@ interface Props {
   sitePlan: SitePlanData | null
   isLoading: boolean
   error: string | null
+  onRemove?: (deviceId: number) => void
+  siteName?: string
+  onSiteNameChange?: (name: string) => void
+  nameError?: string | null
 }
 
 const SCALE = 6 // px per foot
 
-function LayoutBlock({ item }: { item: LayoutItem }) {
+function TransformerIcon() {
+  const tabs = [10, 21, 33, 44]
+  return (
+    <svg
+      viewBox="0 0 60 60"
+      className="absolute inset-0 w-full h-full pointer-events-none"
+      preserveAspectRatio="xMidYMid meet"
+    >
+      {/* Top tabs */}
+      {tabs.map(x => (
+        <rect key={`t${x}`} x={x} y="4" width="5" height="6" rx="0.8" fill="#92400e" stroke="#b45309" strokeWidth="0.8" />
+      ))}
+      {/* Top rail */}
+      <rect x="2" y="9" width="56" height="7" rx="1" fill="#92400e" stroke="#b45309" strokeWidth="0.8" />
+
+      {/* Main body */}
+      <rect x="4" y="16" width="52" height="28" rx="1.5" fill="#78350f" stroke="#b45309" strokeWidth="0.8" />
+
+      {/* Warning triangle — yellow fill */}
+      <path d="M 30 20 L 16 42 L 44 42 Z" fill="#fbbf24" stroke="#92400e" strokeWidth="1" />
+      {/* Lightning bolt — dark */}
+      <path d="M 32.5 24 L 26 34 L 30.5 34 L 27.5 42 L 34 32 L 29.5 32 Z" fill="#78350f" />
+
+      {/* Bottom rail */}
+      <rect x="2" y="44" width="56" height="7" rx="1" fill="#92400e" stroke="#b45309" strokeWidth="0.8" />
+      {/* Bottom tabs */}
+      {tabs.map(x => (
+        <rect key={`b${x}`} x={x} y="50" width="5" height="6" rx="0.8" fill="#92400e" stroke="#b45309" strokeWidth="0.8" />
+      ))}
+    </svg>
+  )
+}
+
+function LayoutBlock({ item, onRemove }: { item: LayoutItem; onRemove?: (deviceId: number) => void }) {
   const isBattery = item.zone === 'battery'
   const segments = Math.max(1, Math.round(item.widthFt / 10))
+  const w = item.widthFt * SCALE
+  const h = item.heightFt * SCALE
+  // Each cell is 10ft wide; leave 3px right for the terminal nub
+  const cellPx = (w - 3) / segments
 
   return (
     <div
-      className={`absolute rounded-sm border flex flex-col items-center justify-center overflow-hidden group
-        ${isBattery
-          ? 'bg-blue-900/70 border-blue-500/60 hover:bg-blue-800/80'
-          : 'bg-amber-900/70 border-amber-500/60 hover:bg-amber-800/80'
-        }`}
-      style={{
-        left: item.xFt * SCALE,
-        top: item.yFt * SCALE,
-        width: item.widthFt * SCALE,
-        height: item.heightFt * SCALE,
-      }}
+      className="absolute flex items-stretch"
+      style={{ left: item.xFt * SCALE, top: item.yFt * SCALE, width: w, height: h }}
       title={`${item.label} — ${item.widthFt}×${item.heightFt}ft${item.energyMWh ? ` · ${item.energyMWh} MWh` : ''}`}
     >
-      {/* Cell segments */}
-      <div className="absolute inset-0.5 flex gap-px">
-        {Array.from({ length: segments }).map((_, i) => (
-          <div
-            key={i}
-            className={`flex-1 rounded-sm
-              ${isBattery ? 'bg-blue-700/30' : 'bg-amber-700/30'}`}
-          />
-        ))}
+      {/* Body */}
+      <div className={`relative flex-1 flex items-center gap-px p-0.5 rounded-sm border overflow-hidden
+        ${isBattery
+          ? 'bg-blue-900/70 border-blue-500/60 hover:bg-blue-800/80'
+          : 'bg-amber-950/80 border-amber-600/70 hover:bg-amber-900/80'
+        }`}
+      >
+        {isBattery ? (
+          <>
+            {/* Fixed-width cell segments */}
+            {Array.from({ length: segments }).map((_, i) => (
+              <div
+                key={i}
+                className="shrink-0 rounded-sm h-full bg-blue-700/50 border border-blue-600/40"
+                style={{ width: cellPx }}
+              />
+            ))}
+            {/* Remove button */}
+            {onRemove && (
+              <button
+                onClick={e => { e.stopPropagation(); onRemove(item.deviceId) }}
+                className="absolute top-0.5 right-0.5 z-20 w-3.5 h-3.5 rounded-sm bg-blue-950/80 hover:bg-red-600 text-blue-300 hover:text-white flex items-center justify-center leading-none transition-colors text-[10px] font-bold"
+              >−</button>
+            )}
+            {/* Label */}
+            {w > 36 && (
+              <span className="absolute bottom-0.5 left-1 z-10 text-[9px] font-semibold leading-tight text-blue-200">
+                {item.label}
+              </span>
+            )}
+          </>
+        ) : (
+          <>
+            {/* Transformer icon */}
+            <TransformerIcon />
+            {/* Label */}
+            {w > 36 && (
+              <span className="absolute bottom-0.5 left-1 z-10 text-[9px] font-semibold leading-tight text-amber-300">
+                {item.label}
+              </span>
+            )}
+          </>
+        )}
+
+        {/* Gloss */}
+        <div className="absolute inset-0 bg-linear-to-b from-white/5 to-transparent pointer-events-none" />
       </div>
 
-      {/* Label — only show if wide enough */}
-      {item.widthFt * SCALE > 36 && (
-        <span className={`relative z-10 text-[9px] font-semibold truncate px-1 leading-tight
-          ${isBattery ? 'text-blue-200' : 'text-amber-200'}`}>
-          {item.label}
-        </span>
-      )}
-
-      {/* Gloss */}
-      <div className="absolute inset-0 bg-linear-to-b from-white/5 to-transparent pointer-events-none" />
+      {/* Terminal nub */}
+      <div className={`w-[3px] self-center h-1/3 rounded-r
+        ${isBattery ? 'bg-blue-500' : 'bg-amber-500'}`}
+      />
     </div>
   )
 }
@@ -78,7 +141,7 @@ function GridLines({ widthFt, heightFt }: { widthFt: number; heightFt: number })
   )
 }
 
-export default function SiteCanvas({ sitePlan, isLoading, error }: Props) {
+export default function SiteCanvas({ sitePlan, isLoading, error, onRemove, siteName, onSiteNameChange, nameError }: Props) {
   if (error) {
     return (
       <div className="flex-1 flex items-center justify-center p-8">
@@ -125,14 +188,53 @@ export default function SiteCanvas({ sitePlan, isLoading, error }: Props) {
     <div className="flex-1 flex flex-col overflow-hidden">
       {/* Canvas toolbar */}
       <div className="px-4 py-2 border-b border-gray-800 flex items-center justify-between shrink-0">
-        <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-widest">Site Layout</h2>
+        <div className="flex items-center gap-2">
+          <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-widest">Site Layout</h2>
+          <div className="flex flex-col">
+            <input
+              type="text"
+              value={siteName ?? ''}
+              onChange={e => onSiteNameChange?.(e.target.value)}
+              placeholder="site name"
+              className={`h-6 px-2 text-xs text-gray-300 placeholder-gray-600 bg-gray-800/60 border rounded-md outline-none focus:text-white transition-colors w-36
+                ${nameError ? 'border-red-500/70 focus:border-red-400' : 'border-gray-700/60 focus:border-gray-500'}`}
+            />
+            {nameError && <p className="text-[10px] text-red-400 mt-0.5 whitespace-nowrap">Enter a name to save</p>}
+          </div>
+        </div>
         <div className="flex items-center gap-4 text-xs text-gray-500">
+          {/* Battery legend — mini battery with 2 cells + nub */}
           <span className="flex items-center gap-1.5">
-            <span className="w-3 h-3 rounded-sm bg-blue-700/70 border border-blue-500/60" /> Battery
+            <span className="flex items-center h-4">
+              <span className="flex items-center gap-px h-3 px-0.5 rounded-sm bg-blue-900/70 border border-blue-500/60">
+                <span className="w-2.5 h-2 rounded-sm bg-blue-700/50 border border-blue-600/40 shrink-0" />
+                <span className="w-2.5 h-2 rounded-sm bg-blue-700/50 border border-blue-600/40 shrink-0" />
+              </span>
+              <span className="w-[2px] h-1.5 bg-blue-500 rounded-r" />
+            </span>
+            Battery
           </span>
+
+          {/* Transformer legend — mini version of the icon */}
           <span className="flex items-center gap-1.5">
-            <span className="w-3 h-3 rounded-sm bg-amber-700/70 border border-amber-500/60" /> Transformer
+            <span className="relative flex items-center h-4">
+              <svg viewBox="0 0 60 60" className="w-6 h-4" preserveAspectRatio="xMidYMid meet">
+                <rect x="6" y="4" width="4" height="5" rx="0.8" fill="#92400e" stroke="#b45309" strokeWidth="0.8" />
+                <rect x="27" y="4" width="4" height="5" rx="0.8" fill="#92400e" stroke="#b45309" strokeWidth="0.8" />
+                <rect x="48" y="4" width="4" height="5" rx="0.8" fill="#92400e" stroke="#b45309" strokeWidth="0.8" />
+                <rect x="2" y="9" width="56" height="7" rx="1" fill="#92400e" stroke="#b45309" strokeWidth="0.8" />
+                <rect x="4" y="16" width="52" height="28" rx="1.5" fill="#78350f" stroke="#b45309" strokeWidth="0.8" />
+                <path d="M 30 20 L 16 42 L 44 42 Z" fill="#fbbf24" stroke="#92400e" strokeWidth="1" />
+                <path d="M 32.5 24 L 26 34 L 30.5 34 L 27.5 42 L 34 32 L 29.5 32 Z" fill="#78350f" />
+                <rect x="2" y="44" width="56" height="7" rx="1" fill="#92400e" stroke="#b45309" strokeWidth="0.8" />
+                <rect x="6" y="50" width="4" height="5" rx="0.8" fill="#92400e" stroke="#b45309" strokeWidth="0.8" />
+                <rect x="27" y="50" width="4" height="5" rx="0.8" fill="#92400e" stroke="#b45309" strokeWidth="0.8" />
+                <rect x="48" y="50" width="4" height="5" rx="0.8" fill="#92400e" stroke="#b45309" strokeWidth="0.8" />
+              </svg>
+            </span>
+            Transformer
           </span>
+
           <span>{SCALE}px/ft</span>
         </div>
       </div>
@@ -158,7 +260,7 @@ export default function SiteCanvas({ sitePlan, isLoading, error }: Props) {
           />
 
           {/* Layout items */}
-          {layout.map(item => <LayoutBlock key={item.id} item={item} />)}
+          {layout.map(item => <LayoutBlock key={item.id} item={item} onRemove={onRemove} />)}
 
           {/* Dimension labels */}
           <div className="absolute -bottom-5 left-0 right-0 flex justify-center">

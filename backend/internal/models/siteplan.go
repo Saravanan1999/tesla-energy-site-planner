@@ -40,6 +40,7 @@ type SiteMetrics struct {
 
 type LayoutItem struct {
 	ID        string     `json:"id"`
+	DeviceID  int64      `json:"deviceId"`
 	Type      DeviceType `json:"type"`
 	Label     string     `json:"label"`
 	Zone      LayoutZone `json:"zone"`

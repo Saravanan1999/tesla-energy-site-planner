@@ -24,6 +24,7 @@ const (
 )
 
 type deviceSpec struct {
+	id        int64
 	name      string
 	widthFt   int
 	heightFt  int
@@ -69,6 +70,7 @@ func (s *SitePlanService) Generate(ctx context.Context, req models.GenerateSiteP
 			continue
 		}
 
+		spec.id = cd.ID
 		for i := 0; i < cd.Quantity; i++ {
 			batteries = append(batteries, *spec)
 			totalCost += spec.cost
@@ -192,6 +194,7 @@ func packRows(devices []deviceSpec, zone models.LayoutZone, startX, startY, usab
 
 		items = append(items, models.LayoutItem{
 			ID:        fmt.Sprintf("%s-%d", prefix, i),
+			DeviceID:  d.id,
 			Type:      models.DeviceType(d.name),
 			Label:     d.name,
 			Zone:      zone,
