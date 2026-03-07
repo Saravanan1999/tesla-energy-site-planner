@@ -115,12 +115,41 @@ func (s *SessionService) insert(ctx context.Context, name, devicesJSON string) (
 	return &models.SessionData{SessionID: sessionID, Name: name, SavedAt: savedAt}, nil
 }
 
+// UpdateByID updates an existing session's name and devices by its ID.
+func (s *SessionService) UpdateByID(ctx context.Context, sessionID string, req models.CreateSessionRequest) (*models.SessionData, *models.APIError) {
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		return nil, &models.APIError{
+			Code:    models.ErrorInvalidConfig,
+			Message: "Session config is invalid.",
+			Details: []string{"Name is required."},
+		}
+	}
+
+	// Verify session exists
+	var existing string
+	err := s.db.QueryRowContext(ctx, `SELECT session_id FROM sessions WHERE session_id = ?`, sessionID).Scan(&existing)
+	if err == sql.ErrNoRows {
+		return nil, &models.APIError{Code: models.ErrorInvalidConfig, Message: "Session not found."}
+	}
+	if err != nil {
+		return nil, &models.APIError{Code: models.ErrorInternal, Message: "Failed to verify session."}
+	}
+
+	devicesJSON, err := json.Marshal(req.Devices)
+	if err != nil {
+		return nil, &models.APIError{Code: models.ErrorInternal, Message: "Failed to serialize devices."}
+	}
+
+	return s.update(ctx, sessionID, name, string(devicesJSON))
+}
+
 func (s *SessionService) update(ctx context.Context, sessionID, name, devicesJSON string) (*models.SessionData, *models.APIError) {
 	savedAt := time.Now().UTC()
 
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE sessions SET devices = ?, saved_at = ? WHERE session_id = ?`,
-		devicesJSON, savedAt.Format(time.RFC3339), sessionID,
+		`UPDATE sessions SET name = ?, devices = ?, saved_at = ? WHERE session_id = ?`,
+		name, devicesJSON, savedAt.Format(time.RFC3339), sessionID,
 	)
 	if err != nil {
 		return nil, &models.APIError{Code: models.ErrorInternal, Message: "Failed to update session."}
@@ -159,6 +188,18 @@ func (s *SessionService) List(ctx context.Context) ([]models.SessionData, *model
 		sessions = []models.SessionData{}
 	}
 	return sessions, nil
+}
+
+func (s *SessionService) DeleteByID(ctx context.Context, sessionID string) *models.APIError {
+	res, err := s.db.ExecContext(ctx, `DELETE FROM sessions WHERE session_id = ?`, sessionID)
+	if err != nil {
+		return &models.APIError{Code: models.ErrorInternal, Message: "Failed to delete session."}
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return &models.APIError{Code: models.ErrorInvalidConfig, Message: "Session not found."}
+	}
+	return nil
 }
 
 func (s *SessionService) GetByID(ctx context.Context, sessionID string) (*SessionRecord, *models.APIError) {

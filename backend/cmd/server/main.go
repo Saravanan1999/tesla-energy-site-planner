@@ -32,6 +32,8 @@ func main() {
 	mux.HandleFunc("GET /api/sessions", sessionHandler.ListSessions)
 	mux.HandleFunc("POST /api/sessions", sessionHandler.CreateSession)
 	mux.HandleFunc("GET /api/sessions/{sessionId}", sessionHandler.GetSession)
+	mux.HandleFunc("PUT /api/sessions/{sessionId}", sessionHandler.UpdateSession)
+	mux.HandleFunc("DELETE /api/sessions/{sessionId}", sessionHandler.DeleteSession)
 
 	addr := ":8080"
 	fmt.Printf("Server running on http://localhost%s\n", addr)

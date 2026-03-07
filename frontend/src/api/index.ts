@@ -21,6 +21,15 @@ async function get<T>(path: string): Promise<APIResponse<T>> {
   return res.json()
 }
 
+async function put<T>(path: string, body: unknown): Promise<APIResponse<T>> {
+  const res = await fetch(path, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  return res.json()
+}
+
 export const fetchDevices = () =>
   get<{ devices: Device[] }>('/api/devices')
 
@@ -35,3 +44,10 @@ export const listSessions = () =>
 
 export const getSession = (sessionId: string) =>
   get<SessionSitePlanData>(`/api/sessions/${sessionId}`)
+
+export const updateSession = (sessionId: string, name: string, devices: ConfiguredDevice[]) =>
+  put<SessionData>(`/api/sessions/${sessionId}`, { name, devices })
+
+export const deleteSession = (sessionId: string) =>
+  fetch(`/api/sessions/${sessionId}`, { method: 'DELETE' })
+    .then(r => r.json() as Promise<APIResponse<never>>)

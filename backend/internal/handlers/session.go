@@ -58,6 +58,65 @@ func (h *SessionHandler) CreateSession(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (h *SessionHandler) UpdateSession(w http.ResponseWriter, r *http.Request) {
+	sessionID := r.PathValue("sessionId")
+	if sessionID == "" {
+		writeSessionError(w, http.StatusBadRequest, &models.APIError{
+			Code:    models.ErrorInvalidConfig,
+			Message: "sessionId is required",
+		})
+		return
+	}
+
+	var req models.CreateSessionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeSessionError(w, http.StatusBadRequest, &models.APIError{
+			Code:    models.ErrorInvalidConfig,
+			Message: "invalid request body",
+		})
+		return
+	}
+
+	data, apiErr := h.sessionSvc.UpdateByID(r.Context(), sessionID, req)
+	if apiErr != nil {
+		status := http.StatusBadRequest
+		if apiErr.Code == models.ErrorInternal {
+			status = http.StatusInternalServerError
+		}
+		writeSessionError(w, status, apiErr)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(models.SessionResponse{
+		Success: true,
+		Data:    data,
+	})
+}
+
+func (h *SessionHandler) DeleteSession(w http.ResponseWriter, r *http.Request) {
+	sessionID := r.PathValue("sessionId")
+	if sessionID == "" {
+		writeSessionError(w, http.StatusBadRequest, &models.APIError{
+			Code:    models.ErrorInvalidConfig,
+			Message: "sessionId is required",
+		})
+		return
+	}
+
+	if apiErr := h.sessionSvc.DeleteByID(r.Context(), sessionID); apiErr != nil {
+		status := http.StatusBadRequest
+		if apiErr.Code == models.ErrorInternal {
+			status = http.StatusInternalServerError
+		}
+		writeSessionError(w, status, apiErr)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(models.SessionResponse{Success: true})
+}
+
 func (h *SessionHandler) GetSession(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.PathValue("sessionId")
 	if sessionID == "" {

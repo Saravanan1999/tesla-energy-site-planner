@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { fetchDevices, generateSitePlan, getSession, createSession } from './api'
+import { fetchDevices, generateSitePlan, getSession, createSession, updateSession } from './api'
 import type { Device, SitePlanData } from './types/api'
 import DeviceCatalog from './components/DeviceCatalog'
 import SiteCanvas from './components/SiteCanvas'
@@ -17,7 +17,9 @@ export default function App() {
   const [siteName, setSiteName] = useState('')
   const [saveError, setSaveError] = useState<string | null>(null)
   const [isSaving, setIsSaving] = useState(false)
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>()
+  const [savedToast, setSavedToast] = useState<'in' | 'out' | null>(null)
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null)
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
   useEffect(() => {
     fetchDevices().then(res => {
@@ -66,10 +68,17 @@ export default function App() {
     const configured = Object.entries(quantities)
       .filter(([, q]) => q > 0)
       .map(([id, quantity]) => ({ id: Number(id), quantity }))
-    const res = await createSession(siteName.trim(), configured)
+    const res = currentSessionId
+      ? await updateSession(currentSessionId, siteName.trim(), configured)
+      : await createSession(siteName.trim(), configured)
     setIsSaving(false)
     if (!res.success) {
       setSaveError(res.error?.details?.[0] ?? res.error?.message ?? 'Failed to save.')
+    } else {
+      if (res.data?.sessionId) setCurrentSessionId(res.data.sessionId)
+      setSavedToast('in')
+      setTimeout(() => setSavedToast('out'), 1600)
+      setTimeout(() => setSavedToast(null), 1950)
     }
   }
 
@@ -79,6 +88,7 @@ export default function App() {
       const { name, requestedDevices, metrics, layout, safetyAssumptions, warnings } = res.data
       setSitePlan({ requestedDevices, metrics, layout, safetyAssumptions, warnings })
       setSiteName(name)
+      setCurrentSessionId(res.data.sessionId)
       setPlanError(null)
       setSaveError(null)
 
@@ -95,6 +105,30 @@ export default function App() {
 
   return (
     <div className="h-screen flex flex-col bg-gray-950 text-white overflow-hidden">
+      {/* Save success toast */}
+      {savedToast && (
+        <div className={`fixed top-16 left-1/2 -translate-x-1/2 z-50 pointer-events-none ${savedToast === 'in' ? 'animate-toast-in' : 'animate-toast-out'}`}>
+          <div className="flex items-center gap-3 px-5 py-3 rounded-2xl bg-gray-900 border border-green-600/50 shadow-xl shadow-green-950/40">
+            {/* Animated battery */}
+            <div className="flex items-center">
+              <div className="relative w-11 h-[22px] rounded-[4px] border-2 border-green-500 overflow-hidden bg-gray-900">
+                {/* Fill — starts at 0, charges to full */}
+                <div className="animate-battery-charge absolute top-[3px] bottom-[3px] left-[3px] bg-green-500 rounded-[2px]" style={{ width: 0 }} />
+                {/* Lightning bolt pulses during charge, sits still when full */}
+                <svg className="animate-bolt-pulse absolute inset-0 m-auto w-3 h-3.5 text-white drop-shadow-md" viewBox="0 0 10 14" fill="currentColor">
+                  <path d="M6.5 0L1 8h4L3.5 14 9 6H5z" />
+                </svg>
+              </div>
+              {/* Terminal nub */}
+              <div className="w-[5px] h-[10px] bg-green-500 rounded-r-sm" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-green-400 leading-tight">Session Saved</p>
+              <p className="text-[11px] text-green-600 leading-tight">{siteName}</p>
+            </div>
+          </div>
+        </div>
+      )}
       {/* Header */}
       <header className="shrink-0 px-6 py-3 border-b border-gray-800 flex items-center justify-between bg-gray-950/90 backdrop-blur-sm">
         <div className="flex items-center gap-3">
@@ -148,6 +182,7 @@ export default function App() {
       {showResume && (
         <ResumeModal
           onResume={handleResume}
+          onDelete={id => { if (id === currentSessionId) setCurrentSessionId(null) }}
           onClose={() => setShowResume(false)}
         />
       )}
