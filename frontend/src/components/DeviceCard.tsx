@@ -75,7 +75,15 @@ export default function DeviceCard({ device, quantity, onChange }: Props) {
               </div>
             </div>
           </div>
-          <span className="text-xs text-gray-400 shrink-0">${device.cost.toLocaleString()}<span className="text-gray-600">/device</span></span>
+          <div className="relative group shrink-0">
+            <span className="text-xs text-gray-400 cursor-default">${device.cost.toLocaleString()}<span className="text-gray-600">/device</span></span>
+            <div className="absolute right-0 bottom-full mb-1.5 hidden group-hover:block z-20 pointer-events-none">
+              <div className="bg-gray-800 border border-gray-600 rounded-lg px-2.5 py-1.5 text-xs text-gray-300 whitespace-nowrap shadow-xl">
+                Unit price per device
+                <div className="absolute right-3 top-full w-2 h-2 bg-gray-800 border-r border-b border-gray-600 rotate-45 -mt-1" />
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -98,9 +106,17 @@ export default function DeviceCard({ device, quantity, onChange }: Props) {
           className="w-7 h-7 rounded-md bg-gray-700 hover:bg-gray-600 text-white font-bold text-sm flex items-center justify-center transition-colors"
         >+</button>
         {isActive && (
-          <span className="ml-auto text-xs text-blue-400 font-medium">
-            ${(device.cost * quantity).toLocaleString()}
-          </span>
+          <div className="relative group ml-auto">
+            <span className="text-xs text-blue-400 font-medium cursor-default">
+              ${(device.cost * quantity).toLocaleString()}
+            </span>
+            <div className="absolute right-0 bottom-full mb-1.5 hidden group-hover:block z-20 pointer-events-none">
+              <div className="bg-gray-800 border border-gray-600 rounded-lg px-2.5 py-1.5 text-xs text-gray-300 whitespace-nowrap shadow-xl">
+                Subtotal: {quantity} × ${device.cost.toLocaleString()}
+                <div className="absolute right-3 top-full w-2 h-2 bg-gray-800 border-r border-b border-gray-600 rotate-45 -mt-1" />
+              </div>
+            </div>
+          </div>
         )}
       </div>
     </div>

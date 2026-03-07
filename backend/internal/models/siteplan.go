@@ -31,6 +31,7 @@ type SiteMetrics struct {
 	TotalBatteryCount      int     `json:"totalBatteryCount"`
 	RequiredTransformers   int     `json:"requiredTransformers"`
 	TotalCost              int     `json:"totalCost"`
+	TransformerCostEach    int     `json:"transformerCostEach"`
 	TotalEnergyMWh         float64 `json:"totalEnergyMWh"`
 	EquipmentFootprintSqFt int     `json:"equipmentFootprintSqFt"`
 	SiteWidthFt            int     `json:"siteWidthFt"`

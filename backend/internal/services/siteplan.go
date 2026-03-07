@@ -151,6 +151,7 @@ func (s *SitePlanService) Generate(ctx context.Context, req models.GenerateSiteP
 			TotalBatteryCount:      totalBatteryCount,
 			RequiredTransformers:   requiredTransformers,
 			TotalCost:              totalCost,
+			TransformerCostEach:    transformerCost,
 			TotalEnergyMWh:         totalEnergy,
 			EquipmentFootprintSqFt: equipmentFootprint,
 			SiteWidthFt:            siteWidthFt,

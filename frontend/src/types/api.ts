@@ -27,6 +27,7 @@ export interface SiteMetrics {
   totalBatteryCount: number
   requiredTransformers: number
   totalCost: number
+  transformerCostEach: number
   totalEnergyMWh: number
   equipmentFootprintSqFt: number
   siteWidthFt: number
