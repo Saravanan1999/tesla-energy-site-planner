@@ -26,6 +26,8 @@ export default function App() {
   const [animDone, setAnimDone] = useState(false)
   const [splashFading, setSplashFading] = useState(false)
   const [splashGone, setSplashGone] = useState(false)
+  const [loadingSplash, setLoadingSplash] = useState(false)
+  const [loadingSplashFading, setLoadingSplashFading] = useState(false)
 
   useEffect(() => {
     localStorage.setItem('draft_quantities', JSON.stringify(quantities))
@@ -131,6 +133,8 @@ export default function App() {
   }
 
   const handleResume = async (sessionId: string) => {
+    setLoadingSplash(true)
+    setLoadingSplashFading(false)
     const res = await getSession(sessionId)
     if (res.success && res.data) {
       const { name, requestedDevices, metrics, layout, safetyAssumptions, warnings } = res.data
@@ -146,6 +150,8 @@ export default function App() {
 
       setShowResume(false)
     }
+    setTimeout(() => setLoadingSplashFading(true), 800)
+    setTimeout(() => setLoadingSplash(false), 1200)
     return res
   }
 
@@ -156,6 +162,21 @@ export default function App() {
       {/* Splash screen */}
       {!splashGone && (
         <div className={`fixed inset-0 z-[100] bg-gray-950 flex flex-col items-center justify-center gap-5 ${splashFading ? 'splash-exit' : ''}`}>
+          <div className="flex items-center gap-3">
+            {[75, 60, 45, 30, 15].map((h, i) => (
+              <div
+                key={i}
+                className="w-5 bg-blue-500 rounded splash-bar"
+                style={{ height: `${h}px`, animationDelay: `${i * 220}ms` }}
+              />
+            ))}
+          </div>
+          <p className="text-xs text-gray-500 tracking-[0.2em] uppercase">Tesla Energy Site Planner</p>
+        </div>
+      )}
+      {/* Session load splash */}
+      {loadingSplash && (
+        <div className={`fixed inset-0 z-[100] bg-gray-950 flex flex-col items-center justify-center gap-5 ${loadingSplashFading ? 'splash-exit' : ''}`}>
           <div className="flex items-center gap-3">
             {[75, 60, 45, 30, 15].map((h, i) => (
               <div

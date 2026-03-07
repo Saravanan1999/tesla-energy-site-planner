@@ -1,5 +1,6 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { SitePlanData, LayoutItem } from '../types/api'
+import { jsPDF } from 'jspdf'
 
 interface Props {
   sitePlan: SitePlanData | null
@@ -46,7 +47,7 @@ function TransformerIcon() {
   )
 }
 
-function LayoutBlock({ item, onRemove, isExiting, isNew, growDelay, slideDelay, flipFrom }: { item: LayoutItem; onRemove?: (deviceId: number) => void; isExiting?: boolean; isNew?: boolean; growDelay?: number; slideDelay?: number; flipFrom?: { x: number; y: number; delay: number } }) {
+function LayoutBlock({ item, numberedLabel, onRemove, isExiting, isNew, growDelay, slideDelay, flipFrom }: { item: LayoutItem; numberedLabel: string; onRemove?: (deviceId: number) => void; isExiting?: boolean; isNew?: boolean; growDelay?: number; slideDelay?: number; flipFrom?: { x: number; y: number; delay: number } }) {
   const isBattery = item.zone === 'battery'
   const segments = Math.max(1, Math.round(item.widthFt / 10))
   const w = item.widthFt * SCALE
@@ -125,7 +126,7 @@ function LayoutBlock({ item, onRemove, isExiting, isNew, growDelay, slideDelay, 
       {/* Device tooltip */}
       <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 hidden group-hover:block pointer-events-none z-50 whitespace-nowrap">
         <div className="px-2 py-1 rounded bg-gray-900 border border-gray-700 shadow-xl text-[10px] text-gray-200">
-          {item.label} — {item.widthFt}×{item.heightFt}ft{item.energyMWh ? ` · ${item.energyMWh} MWh` : ''}
+          {numberedLabel} — {item.widthFt}×{item.heightFt}ft{item.energyMWh ? ` · ${item.energyMWh} MWh` : ''}
         </div>
       </div>
       {/* Body */}
@@ -154,8 +155,8 @@ function LayoutBlock({ item, onRemove, isExiting, isNew, growDelay, slideDelay, 
             )}
             {/* Label */}
             {w > 36 && (
-              <span className="absolute bottom-0.5 left-1 right-0.5 z-10 text-[8px] font-semibold leading-tight text-blue-200 truncate">
-                {item.label}
+              <span className="absolute inset-1 z-10 text-[8px] font-semibold leading-tight text-blue-200 flex items-center justify-center text-center break-words overflow-hidden">
+                {numberedLabel}
               </span>
             )}
           </>
@@ -165,8 +166,8 @@ function LayoutBlock({ item, onRemove, isExiting, isNew, growDelay, slideDelay, 
             <TransformerIcon />
             {/* Label */}
             {w > 36 && (
-              <span className="absolute bottom-0.5 left-1 right-0.5 z-10 text-[7px] font-semibold leading-tight text-amber-300">
-                {item.label}
+              <span className="absolute inset-1 z-10 text-[7px] font-semibold leading-tight text-amber-300 flex items-end justify-center text-center break-words overflow-hidden">
+                {numberedLabel}
               </span>
             )}
           </>
@@ -225,6 +226,7 @@ export default function SiteCanvas({ sitePlan, isLoading, error, onRemove, siteN
   const [perimeterTooltip, setPerimeterTooltip] = useState<{ x: number; y: number } | null>(null)
   const [gapTooltip, setGapTooltip] = useState<{ x: number; y: number } | null>(null)
   const [hoveredRow, setHoveredRow] = useState<number | null>(null)
+  const [showExportMenu, setShowExportMenu] = useState(false)
   const prevLayoutRef = useRef<LayoutItem[]>([])
   const animTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const prevCanvasRef = useRef({ w: canvasW, h: canvasH })
@@ -291,6 +293,7 @@ export default function SiteCanvas({ sitePlan, isLoading, error, onRemove, siteN
       // Phase 2: after shrink completes, switch to new layout.
       // Items with changed keys (reindexed) mount fresh → their useLayoutEffect
       // reads flipFrom and FLIP-animates them from old position to new.
+      const sortFn2 = (a: LayoutItem, b: LayoutItem) => a.yFt !== b.yFt ? a.yFt - b.yFt : a.xFt - b.xFt
       const t = setTimeout(() => {
         setDisplayLayout(layout)
         setExitingIds(new Set())
@@ -298,6 +301,20 @@ export default function SiteCanvas({ sitePlan, isLoading, error, onRemove, siteN
         prevLayoutRef.current = layout
         prevCanvasRef.current = { w: canvasW, h: canvasH }
         setTimeout(() => { flipMapRef.current = new Map() }, 350)
+        // If all/most items are new (e.g. session load), play grow animation
+        if (addedItems.length > 0) {
+          const sortedNew = [...addedItems].sort(sortFn2)
+          const newGrowDelayMap = new Map<string, number>()
+          sortedNew.forEach((item, idx) => newGrowDelayMap.set(item.id, idx * 70))
+          growDelayMapRef.current = newGrowDelayMap
+          if (animTimerRef.current) clearTimeout(animTimerRef.current)
+          setAnimatingIds(new Set(addedItems.map(i => i.id)))
+          const totalDuration = 900 + (sortedNew.length - 1) * 70
+          animTimerRef.current = setTimeout(() => {
+            setAnimatingIds(new Set())
+            growDelayMapRef.current = new Map()
+          }, totalDuration)
+        }
       }, 300)
       return () => clearTimeout(t)
     }
@@ -358,6 +375,130 @@ export default function SiteCanvas({ sitePlan, isLoading, error, onRemove, siteN
   const setZoom = (z: number) => { zoomRef.current = z; setZoomState(z) }
   const setPan  = (p: { x: number; y: number }) => { panRef.current = p; setPanState(p) }
   const resetView = () => { setZoom(1); setPan({ x: 24, y: 24 }) }
+
+  const exportCanvas = (format: 'png' | 'pdf') => {
+    if (!sitePlan) return
+    setShowExportMenu(false)
+    const name = siteName?.trim() || 'site-layout'
+    const S = SCALE * 2 // render at 2× for crispness
+    const pad = 24 // padding around the site box
+    const W = sitePlan.metrics.siteWidthFt * S
+    const H = sitePlan.metrics.siteHeightFt * S
+    const totalW = W + pad * 2
+    const totalH = H + pad * 2
+
+    const canvas = document.createElement('canvas')
+    canvas.width = totalW
+    canvas.height = totalH
+    const ctx = canvas.getContext('2d')!
+
+    // Background
+    ctx.fillStyle = '#020617'
+    ctx.fillRect(0, 0, totalW, totalH)
+
+    ctx.save()
+    ctx.translate(pad, pad)
+
+    // Site box background
+    ctx.fillStyle = '#0f172a'
+    ctx.fillRect(0, 0, W, H)
+
+    // Grid lines (10 ft cells)
+    ctx.strokeStyle = 'rgba(51,65,85,0.5)'
+    ctx.lineWidth = 1
+    for (let x = 0; x <= sitePlan.metrics.siteWidthFt; x += 10) {
+      ctx.beginPath(); ctx.moveTo(x * S, 0); ctx.lineTo(x * S, H); ctx.stroke()
+    }
+    for (let y = 0; y <= sitePlan.metrics.siteHeightFt; y += 10) {
+      ctx.beginPath(); ctx.moveTo(0, y * S); ctx.lineTo(W, y * S); ctx.stroke()
+    }
+
+    // Perimeter margin dashed border
+    const pm = sitePlan.safetyAssumptions.perimeterMarginFt * S
+    ctx.strokeStyle = 'rgba(100,116,139,0.7)'
+    ctx.lineWidth = 1.5
+    ctx.setLineDash([8, 6])
+    ctx.strokeRect(pm, pm, W - pm * 2, H - pm * 2)
+    ctx.setLineDash([])
+
+    // Layout items
+    const labelCounters: Record<string, number> = {}
+    for (const item of displayLayout) {
+      if (exitingIds.has(item.id)) continue
+      labelCounters[item.label] = (labelCounters[item.label] ?? 0) + 1
+      const label = `${item.label} #${labelCounters[item.label]}`
+      const x = item.xFt * S, y = item.yFt * S
+      const w = item.widthFt * S, h = item.heightFt * S
+      const r = 4
+
+      if (item.zone === 'battery') {
+        // Fill
+        ctx.fillStyle = '#1e3a5f'
+        ctx.beginPath(); ctx.roundRect(x, y, w, h, r); ctx.fill()
+        // Border
+        ctx.strokeStyle = '#3b82f6'; ctx.lineWidth = 1.5
+        ctx.beginPath(); ctx.roundRect(x, y, w, h, r); ctx.stroke()
+        // Segments
+        const segs = Math.max(1, Math.round(item.widthFt / 10))
+        ctx.strokeStyle = 'rgba(59,130,246,0.25)'; ctx.lineWidth = 1
+        for (let i = 1; i < segs; i++) {
+          const sx = x + (w / segs) * i
+          ctx.beginPath(); ctx.moveTo(sx, y + 2); ctx.lineTo(sx, y + h - 2); ctx.stroke()
+        }
+        // Label
+        ctx.fillStyle = '#93c5fd'
+        ctx.font = `bold ${Math.max(9, S - 3)}px system-ui, sans-serif`
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+        ctx.fillText(label, x + w / 2, y + h / 2, w - 8)
+      } else {
+        // Transformer fill + border
+        ctx.fillStyle = '#78350f'
+        ctx.beginPath(); ctx.roundRect(x, y, w, h, r); ctx.fill()
+        ctx.strokeStyle = '#d97706'; ctx.lineWidth = 1.5
+        ctx.beginPath(); ctx.roundRect(x, y, w, h, r); ctx.stroke()
+        // Lightning bolt
+        const cx = x + w / 2, cy = y + h / 2 - h * 0.05
+        const bh = h * 0.45, bw = w * 0.25
+        ctx.fillStyle = '#fbbf24'
+        ctx.beginPath()
+        ctx.moveTo(cx + bw * 0.4, cy - bh / 2)
+        ctx.lineTo(cx - bw * 0.6, cy + bh * 0.1)
+        ctx.lineTo(cx + bw * 0.1, cy + bh * 0.1)
+        ctx.lineTo(cx - bw * 0.4, cy + bh / 2)
+        ctx.lineTo(cx + bw * 0.6, cy - bh * 0.1)
+        ctx.lineTo(cx - bw * 0.1, cy - bh * 0.1)
+        ctx.closePath(); ctx.fill()
+        // Label
+        ctx.fillStyle = '#fcd34d'
+        ctx.font = `bold ${Math.max(8, S - 4)}px system-ui, sans-serif`
+        ctx.textAlign = 'center'; ctx.textBaseline = 'bottom'
+        ctx.fillText(label, x + w / 2, y + h - 4, w - 8)
+      }
+    }
+
+    ctx.restore()
+
+    // Download
+    canvas.toBlob((blob: Blob | null) => {
+      if (!blob) return
+      const url = URL.createObjectURL(blob)
+      if (format === 'png') {
+        const link = document.createElement('a')
+        link.download = `${name}.png`
+        link.href = url
+        document.body.appendChild(link)
+        link.click()
+        document.body.removeChild(link)
+        URL.revokeObjectURL(url)
+      } else {
+        const imgW = totalW / 2, imgH = totalH / 2
+        const pdf = new jsPDF({ orientation: imgW > imgH ? 'landscape' : 'portrait', unit: 'px', format: [imgW + 40, imgH + 40] })
+        pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 20, 20, imgW, imgH)
+        pdf.save(`${name}.pdf`)
+        URL.revokeObjectURL(url)
+      }
+    }, 'image/png')
+  }
 
   // Callback ref — runs whenever the container element mounts or unmounts,
   // so the wheel listener is attached even when the canvas renders after sitePlan loads.
@@ -494,6 +635,35 @@ export default function SiteCanvas({ sitePlan, isLoading, error, onRemove, siteN
             </svg>
             10 × 10 ft / cell
           </span>
+
+          {/* Export */}
+          {sitePlan && (
+            <span className="relative border-l border-gray-700/60 pl-3">
+              <button
+                onClick={() => setShowExportMenu(v => !v)}
+                className="flex items-center gap-1 px-2 py-1 text-[11px] text-gray-400 hover:text-white hover:bg-gray-700 rounded transition-colors"
+              >
+                <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M5.5 1v6M2.5 5l3 3 3-3" />
+                  <path d="M1 9h9" />
+                </svg>
+                Export
+              </button>
+              {showExportMenu && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setShowExportMenu(false)} />
+                  <div className="absolute right-0 top-full mt-1.5 z-50 bg-gray-900 border border-gray-700 rounded-lg shadow-xl overflow-hidden whitespace-nowrap">
+                    <button onClick={() => exportCanvas('png')} className="flex items-center gap-2 w-full px-4 py-2 text-xs text-gray-300 hover:bg-gray-700 hover:text-white transition-colors">
+                      <span className="text-gray-500">PNG</span> Export as image
+                    </button>
+                    <button onClick={() => exportCanvas('pdf')} className="flex items-center gap-2 w-full px-4 py-2 text-xs text-gray-300 hover:bg-gray-700 hover:text-white transition-colors border-t border-gray-800">
+                      <span className="text-gray-500">PDF</span> Export as document
+                    </button>
+                  </div>
+                </>
+              )}
+            </span>
+          )}
 
           {/* Zoom controls */}
           <span className="flex items-center gap-0.5 border-l border-gray-700/60 pl-3">
@@ -742,10 +912,16 @@ export default function SiteCanvas({ sitePlan, isLoading, error, onRemove, siteN
           })()}
 
           {/* Layout items — rendered from frozen displayLayout during exit animation */}
-          {displayLayout.map(item => (
+          {(() => {
+            const labelCounters: Record<string, number> = {}
+            return displayLayout.map(item => {
+              labelCounters[item.label] = (labelCounters[item.label] ?? 0) + 1
+              const numberedLabel = `${item.label} #${labelCounters[item.label]}`
+              return (
             <LayoutBlock
               key={item.id}
               item={item}
+              numberedLabel={numberedLabel}
               isExiting={exitingIds.has(item.id)}
               isNew={animatingIds.has(item.id)}
               growDelay={growDelayMapRef.current.get(item.id)}
@@ -753,7 +929,9 @@ export default function SiteCanvas({ sitePlan, isLoading, error, onRemove, siteN
               flipFrom={exitingIds.has(item.id) ? undefined : flipMapRef.current.get(item.id)}
               onRemove={exitingIds.has(item.id) ? undefined : onRemove}
             />
-          ))}
+              )
+            })
+          })()}
 
           {/* Dimension labels */}
           <div className="absolute -bottom-5 left-0 right-0 flex justify-center">
