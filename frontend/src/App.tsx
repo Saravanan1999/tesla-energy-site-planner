@@ -9,23 +9,51 @@ import './App.css'
 
 export default function App() {
   const [devices, setDevices] = useState<Device[]>([])
-  const [quantities, setQuantities] = useState<Record<number, number>>({})
+  const [quantities, setQuantities] = useState<Record<number, number>>(() => {
+    try { return JSON.parse(localStorage.getItem('draft_quantities') ?? '{}') } catch { return {} }
+  })
   const [sitePlan, setSitePlan] = useState<SitePlanData | null>(null)
   const [isGenerating, setIsGenerating] = useState(false)
   const [planError, setPlanError] = useState<string | null>(null)
   const [showResume, setShowResume] = useState(false)
-  const [siteName, setSiteName] = useState('')
+  const [siteName, setSiteName] = useState(() => localStorage.getItem('draft_siteName') ?? '')
   const [saveError, setSaveError] = useState<string | null>(null)
   const [isSaving, setIsSaving] = useState(false)
   const [savedToast, setSavedToast] = useState<'in' | 'out' | null>(null)
-  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null)
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(() => localStorage.getItem('draft_sessionId'))
   const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
   useEffect(() => {
+    localStorage.setItem('draft_quantities', JSON.stringify(quantities))
+  }, [quantities])
+
+  useEffect(() => {
+    localStorage.setItem('draft_siteName', siteName)
+  }, [siteName])
+
+  useEffect(() => {
+    if (currentSessionId) localStorage.setItem('draft_sessionId', currentSessionId)
+    else localStorage.removeItem('draft_sessionId')
+  }, [currentSessionId])
+
+  useEffect(() => {
     fetchDevices().then(res => {
-      if (res.success && res.data) setDevices(res.data.devices)
+      if (res.success && res.data) {
+        setDevices(res.data.devices)
+        const configured = Object.entries(quantities)
+          .filter(([, q]) => q > 0)
+          .map(([id, quantity]) => ({ id: Number(id), quantity }))
+        if (configured.length > 0) {
+          setIsGenerating(true)
+          generateSitePlan(configured).then(planRes => {
+            setIsGenerating(false)
+            if (planRes.success && planRes.data) setSitePlan(planRes.data)
+            else setPlanError(planRes.error?.message ?? 'Failed to restore layout.')
+          })
+        }
+      }
     })
-  }, [])
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleQuantityChange = (id: number, qty: number) => {
     const next = { ...quantities, [id]: qty }
