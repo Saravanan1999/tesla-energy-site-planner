@@ -46,19 +46,71 @@ function TransformerIcon() {
   )
 }
 
-function LayoutBlock({ item, onRemove, isExiting }: { item: LayoutItem; onRemove?: (deviceId: number) => void; isExiting?: boolean }) {
+function LayoutBlock({ item, onRemove, isExiting, isNew, flipFrom }: { item: LayoutItem; onRemove?: (deviceId: number) => void; isExiting?: boolean; isNew?: boolean; flipFrom?: { x: number; y: number } }) {
   const isBattery = item.zone === 'battery'
   const segments = Math.max(1, Math.round(item.widthFt / 10))
   const w = item.widthFt * SCALE
   const h = item.heightFt * SCALE
-  // Each cell is 10ft wide; leave 3px right for the terminal nub
   const cellPx = (w - 3) / segments
+  const divRef = useRef<HTMLDivElement>(null)
+  const prevXRef = useRef<number | null>(null)
+  const prevYRef = useRef<number | null>(null)
+
+  // Slide animation — handles two cases:
+  //   1. New React instance (reindexed key): flipFrom gives the old pixel origin.
+  //   2. Same React instance, position changed (key kept but item moved): prevXRef/prevYRef track it.
+  useLayoutEffect(() => {
+    const el = divRef.current
+    if (!el || isExiting) return
+
+    const newX = item.xFt * SCALE
+    const newY = item.yFt * SCALE
+    let startX: number, startY: number
+
+    if (prevXRef.current === null) {
+      // First mount — only animate if a flip origin was supplied
+      if (!flipFrom) { prevXRef.current = newX; prevYRef.current = newY; return }
+      startX = flipFrom.x
+      startY = flipFrom.y
+    } else if (prevXRef.current !== newX || prevYRef.current !== newY) {
+      // Same instance, position updated
+      startX = prevXRef.current
+      startY = prevYRef.current!
+    } else {
+      return // no movement
+    }
+
+    prevXRef.current = newX
+    prevYRef.current = newY
+
+    const dx = startX - newX
+    const dy = startY - newY
+    el.style.transition = 'none'
+    el.style.transform = `translate(${dx}px, ${dy}px)`
+
+    let raf: number
+    let timer: ReturnType<typeof setTimeout>
+    raf = requestAnimationFrame(() => {
+      el.getBoundingClientRect() // force reflow
+      el.style.transition = 'transform 0.5s cubic-bezier(0.25, 0.8, 0.25, 1)'
+      el.style.transform = ''
+      timer = setTimeout(() => { if (el) el.style.transition = '' }, 520)
+    })
+    return () => {
+      cancelAnimationFrame(raf)
+      clearTimeout(timer)
+      if (el) { el.style.transition = ''; el.style.transform = '' }
+    }
+  }, [item.xFt, item.yFt]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div
+      ref={divRef}
       className={`absolute flex items-stretch ${isExiting
         ? (isBattery ? 'animate-shrink-battery' : 'animate-shrink-transformer')
-        : (isBattery ? 'animate-grow-battery' : 'animate-grow-transformer')
+        : isNew
+          ? (isBattery ? 'animate-grow-battery' : 'animate-grow-transformer')
+          : ''
       } ${isExiting ? 'pointer-events-none' : ''}`}
       style={{ left: item.xFt * SCALE, top: item.yFt * SCALE, width: w, height: h }}
       title={`${item.label} — ${item.widthFt}×${item.heightFt}ft${item.energyMWh ? ` · ${item.energyMWh} MWh` : ''}`}
@@ -155,11 +207,14 @@ export default function SiteCanvas({ sitePlan, isLoading, error, onRemove, siteN
   // exitingIds: IDs of items that are animating out
   const [displayLayout, setDisplayLayout] = useState<LayoutItem[]>([])
   const [exitingIds, setExitingIds] = useState<Set<string>>(new Set())
+  const [animatingIds, setAnimatingIds] = useState<Set<string>>(new Set())
   const [minCanvasSize, setMinCanvasSize] = useState<{ w: number; h: number } | null>(null)
   const [perimeterTooltip, setPerimeterTooltip] = useState<{ x: number; y: number } | null>(null)
   const [gapTooltip, setGapTooltip] = useState<{ x: number; y: number } | null>(null)
   const prevLayoutRef = useRef<LayoutItem[]>([])
+  const animTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const prevCanvasRef = useRef({ w: canvasW, h: canvasH })
+  const flipMapRef = useRef<Map<string, { x: number; y: number }>>(new Map())
 
   useLayoutEffect(() => {
     if (!sitePlan) return
@@ -170,26 +225,64 @@ export default function SiteCanvas({ sitePlan, isLoading, error, onRemove, siteN
     const addedItems = layout.filter(i => !prevIds.has(i.id))
 
     if (removedIds.length > 0) {
-      // Removal: freeze ALL items at old positions so nothing moves until the
-      // shrink animation completes, then switch to the new layout.
+      // Phase 1: freeze everything at old positions while the removed item shrinks.
+      // Simultaneously compute where each surviving item will need to come FROM
+      // so Phase 2 can FLIP-animate them to their new positions.
+      const removedSet = new Set(removedIds)
+      const survivingOld = prevLayout.filter(i => !removedSet.has(i.id))
+      const sortFn = (a: LayoutItem, b: LayoutItem) => a.yFt !== b.yFt ? a.yFt - b.yFt : a.xFt - b.xFt
+
+      const oldByDevice = new Map<number, LayoutItem[]>()
+      for (const item of survivingOld) {
+        const arr = oldByDevice.get(item.deviceId) ?? []
+        oldByDevice.set(item.deviceId, arr)
+        arr.push(item)
+      }
+      for (const arr of oldByDevice.values()) arr.sort(sortFn)
+
+      const newByDevice = new Map<number, LayoutItem[]>()
+      for (const item of layout) {
+        const arr = newByDevice.get(item.deviceId) ?? []
+        newByDevice.set(item.deviceId, arr)
+        arr.push(item)
+      }
+      for (const arr of newByDevice.values()) arr.sort(sortFn)
+
+      const newFlipMap = new Map<string, { x: number; y: number }>()
+      for (const [deviceId, newItems] of newByDevice) {
+        const oldItems = oldByDevice.get(deviceId) ?? []
+        for (let i = 0; i < newItems.length && i < oldItems.length; i++) {
+          const ox = oldItems[i].xFt * SCALE, oy = oldItems[i].yFt * SCALE
+          const nx = newItems[i].xFt * SCALE, ny = newItems[i].yFt * SCALE
+          if (ox !== nx || oy !== ny) newFlipMap.set(newItems[i].id, { x: ox, y: oy })
+        }
+      }
+      flipMapRef.current = newFlipMap
+
       setDisplayLayout(prevLayout)
       setExitingIds(new Set(removedIds))
       setMinCanvasSize({ ...prevCanvasRef.current })
 
+      // Phase 2: after shrink completes, switch to new layout.
+      // Items with changed keys (reindexed) mount fresh → their useLayoutEffect
+      // reads flipFrom and FLIP-animates them from old position to new.
       const t = setTimeout(() => {
         setDisplayLayout(layout)
         setExitingIds(new Set())
         setMinCanvasSize(null)
         prevLayoutRef.current = layout
         prevCanvasRef.current = { w: canvasW, h: canvasH }
+        setTimeout(() => { flipMapRef.current = new Map() }, 350)
       }, 300)
       return () => clearTimeout(t)
     }
 
     if (addedItems.length > 0) {
-      // Addition: show all existing items at their final positions immediately so
-      // nothing jumps after the animation. Only the new items grow in (new React
-      // keys trigger the CSS grow animation automatically).
+      // Addition: only the genuinely new items should grow in.
+      // Schedule clearing animatingIds after the animation completes.
+      if (animTimerRef.current) clearTimeout(animTimerRef.current)
+      setAnimatingIds(new Set(addedItems.map(i => i.id)))
+      animTimerRef.current = setTimeout(() => setAnimatingIds(new Set()), 900)
       setDisplayLayout(layout)
       setExitingIds(new Set())
       prevLayoutRef.current = layout
@@ -299,17 +392,17 @@ export default function SiteCanvas({ sitePlan, isLoading, error, onRemove, siteN
             Transformer
           </span>
 
-          <span>{SCALE}px/ft</span>
+          <span className="flex items-center gap-1">
+            <svg width="14" height="14" viewBox="0 0 14 14" className="text-gray-600" fill="none" stroke="currentColor" strokeWidth="1">
+              <rect x="1" y="1" width="5" height="5" />
+              <rect x="8" y="1" width="5" height="5" />
+              <rect x="1" y="8" width="5" height="5" />
+              <rect x="8" y="8" width="5" height="5" />
+            </svg>
+            10 × 10 ft / cell
+          </span>
         </div>
       </div>
-
-      {/* Subtle reload indicator — only shown when updating an existing plan */}
-      {isLoading && (
-        <div className="absolute top-12 right-4 z-30 flex items-center gap-1.5 px-2 py-1 rounded-md bg-gray-900/80 border border-gray-700/60 text-[10px] text-gray-400 pointer-events-none">
-          <div className="w-3 h-3 border border-blue-500 border-t-transparent rounded-full animate-spin" />
-          Updating…
-        </div>
-      )}
 
       {/* Scrollable canvas area */}
       <div className="flex-1 overflow-auto p-6 bg-gray-950">
@@ -444,6 +537,8 @@ export default function SiteCanvas({ sitePlan, isLoading, error, onRemove, siteN
               key={item.id}
               item={item}
               isExiting={exitingIds.has(item.id)}
+              isNew={animatingIds.has(item.id)}
+              flipFrom={exitingIds.has(item.id) ? undefined : flipMapRef.current.get(item.id)}
               onRemove={exitingIds.has(item.id) ? undefined : onRemove}
             />
           ))}
