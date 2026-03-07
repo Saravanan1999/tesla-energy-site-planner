@@ -139,6 +139,7 @@ export default function OptimizationPanel({
   constraintMode, onConstraintModeChange, targetAreaSqFt, onTargetAreaChange, optimalMaxPower,
   pendingTargetPlan, onConfirmTargetPlan, onCancelTargetPlan,
 }: Props) {
+  const [open, setOpen] = useState(false)
   const [saveAsOpen, setSaveAsOpen] = useState(false)
   const [saveAsName, setSaveAsName] = useState('')
   const [saveAsWorking, setSaveAsWorking] = useState(false)
@@ -206,8 +207,42 @@ export default function OptimizationPanel({
     else setSaveAsError('Failed to save. Try a different name.')
   }
 
+  const hasHint = constraintMode === 'power'
+    ? optimalLayouts.min_area || optimalLayouts.min_cost
+    : optimalMaxPower
+
   return (
     <div className="shrink-0 border-t border-gray-800" style={{ background: 'rgba(3,7,18,0.6)' }}>
+
+      {/* Collapsed bar — always visible */}
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center justify-between px-4 py-2 hover:bg-white/[0.03] transition-colors"
+      >
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] text-gray-500 uppercase tracking-widest">Optimization</span>
+          {hasHint && !open && (
+            <span className="text-[9px] px-1.5 py-0.5 rounded font-medium" style={{ background: 'rgba(37,99,235,0.15)', color: '#60a5fa', border: '1px solid rgba(37,99,235,0.3)' }}>
+              suggestions available
+            </span>
+          )}
+          {pendingTargetPlan && !open && (
+            <span className="text-[9px] px-1.5 py-0.5 rounded font-medium" style={{ background: 'rgba(245,158,11,0.15)', color: '#fbbf24', border: '1px solid rgba(245,158,11,0.3)' }}>
+              ⚠ needs confirmation
+            </span>
+          )}
+        </div>
+        <svg
+          className="text-gray-600 transition-transform"
+          style={{ transform: open ? 'rotate(180deg)' : 'rotate(0deg)', width: 12, height: 12 }}
+          viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.8"
+        >
+          <polyline points="2,4 6,8 10,4" />
+        </svg>
+      </button>
+
+      {/* Expanded panel */}
+      {open && <>
 
       {/* Revert / Save-as bar */}
       {appliedSnapshots.length > 0 && (() => {
@@ -544,6 +579,7 @@ export default function OptimizationPanel({
         ))}
       </div>
       )}
+      </>}
 
     </div>
   )
