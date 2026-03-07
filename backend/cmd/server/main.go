@@ -7,6 +7,7 @@ import (
 
 	"github.com/stygianphantom/tesla-energy-site-planner/internal/database"
 	"github.com/stygianphantom/tesla-energy-site-planner/internal/handlers"
+	"github.com/stygianphantom/tesla-energy-site-planner/internal/services"
 )
 
 func main() {
@@ -19,10 +20,12 @@ func main() {
 	log.Println("Database connected and migrations applied")
 
 	devicesHandler := handlers.NewDevicesHandler(db)
+	sitePlanHandler := handlers.NewSitePlanHandler(services.NewSitePlanService(db))
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/health", handlers.HealthCheck)
 	mux.HandleFunc("/api/devices", devicesHandler.GetDevices)
+	mux.HandleFunc("/api/site-plan", sitePlanHandler.GenerateSitePlan)
 
 	addr := ":8080"
 	fmt.Printf("Server running on http://localhost%s\n", addr)

@@ -18,7 +18,7 @@ func NewDevicesHandler(db *sql.DB) *DevicesHandler {
 
 func (h *DevicesHandler) GetDevices(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		writeDevicesError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "method not allowed")
+		writeDevicesError(w, http.StatusMethodNotAllowed, models.ErrorMethodNotAllowed, "method not allowed")
 		return
 	}
 
@@ -28,7 +28,7 @@ func (h *DevicesHandler) GetDevices(w http.ResponseWriter, r *http.Request) {
 		ORDER BY id ASC
 	`)
 	if err != nil {
-		writeDevicesError(w, http.StatusInternalServerError, "DB_ERROR", "failed to query devices")
+		writeDevicesError(w, http.StatusInternalServerError, models.ErrorDBError, "failed to query devices")
 		return
 	}
 	defer rows.Close()
@@ -37,14 +37,14 @@ func (h *DevicesHandler) GetDevices(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var d models.Device
 		if err := rows.Scan(&d.ID, &d.Name, &d.Category, &d.WidthFt, &d.HeightFt, &d.EnergyMWh, &d.Cost, &d.ReleaseYear); err != nil {
-			writeDevicesError(w, http.StatusInternalServerError, "SCAN_ERROR", "failed to read devices")
+			writeDevicesError(w, http.StatusInternalServerError, models.ErrorScanError, "failed to read devices")
 			return
 		}
 		devices = append(devices, d)
 	}
 
 	if err := rows.Err(); err != nil {
-		writeDevicesError(w, http.StatusInternalServerError, "ROWS_ERROR", "error iterating devices")
+		writeDevicesError(w, http.StatusInternalServerError, models.ErrorRowsError, "error iterating devices")
 		return
 	}
 
@@ -55,7 +55,7 @@ func (h *DevicesHandler) GetDevices(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func writeDevicesError(w http.ResponseWriter, status int, code, message string) {
+func writeDevicesError(w http.ResponseWriter, status int, code models.ErrorCode, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(models.DevicesResponse{
