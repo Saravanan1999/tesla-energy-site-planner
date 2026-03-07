@@ -19,6 +19,7 @@ export interface SafetyAssumptions {
   sideClearanceFt: number
   rowAisleFt: number
   transformerBufferFt: number
+  maxUsableWidthFt: number
   version?: string
 }
 

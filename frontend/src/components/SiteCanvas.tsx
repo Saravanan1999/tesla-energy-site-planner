@@ -720,15 +720,7 @@ export default function SiteCanvas({ sitePlan, isLoading, error, onRemove, siteN
             Transformer
           </span>
 
-          <span className="flex items-center gap-1">
-            <svg width="14" height="14" viewBox="0 0 14 14" className="text-gray-600" fill="none" stroke="currentColor" strokeWidth="1">
-              <rect x="1" y="1" width="5" height="5" />
-              <rect x="8" y="1" width="5" height="5" />
-              <rect x="1" y="8" width="5" height="5" />
-              <rect x="8" y="8" width="5" height="5" />
-            </svg>
-            10 × 10 ft / cell
-          </span>
+          <span className="text-gray-600 border-l border-gray-700/60 pl-4">Scale: 10 × 10 ft / cell</span>
 
           {/* Export */}
           {sitePlan && (
@@ -864,6 +856,7 @@ export default function SiteCanvas({ sitePlan, isLoading, error, onRemove, siteN
               </>
             )
           })()}
+
 
 
           {/* Service aisle between battery zone and transformer zone */}
@@ -1025,6 +1018,20 @@ export default function SiteCanvas({ sitePlan, isLoading, error, onRemove, siteN
             />
               )
             })
+          })()}
+
+          {/* Usable width indicator */}
+          {(() => {
+            const line = { height: '1px', background: 'rgba(71,85,105,0.5)', flexGrow: 1 } as const
+            return (
+              <div className="absolute pointer-events-none" style={{ top: -16, left: 0, width: displayedW, display: 'flex', alignItems: 'center' }}>
+                <span style={{ fontSize: 9, color: '#475569', lineHeight: 1, flexShrink: 0 }}>|</span>
+                <div style={line} />
+                <span style={{ fontSize: 8, color: '#64748b', padding: '0 5px', whiteSpace: 'nowrap', lineHeight: 1, flexShrink: 0 }}>max width: 100 ft (current: {metrics.siteWidthFt} ft)</span>
+                <div style={line} />
+                <span style={{ fontSize: 9, color: '#475569', lineHeight: 1, flexShrink: 0 }}>|</span>
+              </div>
+            )
           })()}
 
           {/* Dimension labels */}

@@ -14,6 +14,7 @@ const (
 	sideClearanceFt         = 2
 	rowAisleFt              = 5
 	transformerBufferFt     = 10
+	maxUsableWidthFt        = 100
 	safetyVersion           = "1.0"
 	batteriesPerTransformer = 2
 
@@ -157,6 +158,7 @@ func (s *SitePlanService) Generate(ctx context.Context, req models.GenerateSiteP
 			SideClearanceFt:     sideClearanceFt,
 			RowAisleFt:          rowAisleFt,
 			TransformerBufferFt: transformerBufferFt,
+			MaxUsableWidthFt:    maxUsableWidthFt,
 			Version:             safetyVersion,
 		},
 	}, nil
@@ -192,6 +194,10 @@ func findOptimalUsableWidth(batteries []deviceSpec, transformers []deviceSpec) i
 	}
 	if maxW < minW {
 		maxW = minW
+	}
+
+	if maxW > maxUsableWidthFt {
+		maxW = maxUsableWidthFt
 	}
 
 	bestW := minW
