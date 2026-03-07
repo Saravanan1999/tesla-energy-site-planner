@@ -86,6 +86,39 @@ func (h *SitePlanHandler) OptimizeSitePlan(w http.ResponseWriter, r *http.Reques
 	})
 }
 
+func (h *SitePlanHandler) OptimizeMaxPower(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeSitePlanError(w, http.StatusMethodNotAllowed, &models.APIError{
+			Code:    models.ErrorMethodNotAllowed,
+			Message: "method not allowed",
+		})
+		return
+	}
+
+	var req struct {
+		TargetAreaSqFt int `json:"targetAreaSqFt"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.TargetAreaSqFt <= 0 {
+		writeSitePlanError(w, http.StatusBadRequest, &models.APIError{
+			Code:    models.ErrorInvalidConfig,
+			Message: "targetAreaSqFt must be a positive integer",
+		})
+		return
+	}
+
+	data, apiErr := h.service.OptimizeMaxPower(r.Context(), req.TargetAreaSqFt)
+	if apiErr != nil {
+		writeSitePlanError(w, http.StatusInternalServerError, apiErr)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(models.SitePlanResponse{
+		Success: true,
+		Data:    data,
+	})
+}
+
 func writeSitePlanError(w http.ResponseWriter, status int, apiErr *models.APIError) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)

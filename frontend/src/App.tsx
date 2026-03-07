@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { fetchDevices, generateSitePlan, optimizeSitePlan, getSession, createSession, updateSession, listSessions } from './api'
+import { fetchDevices, generateSitePlan, optimizeSitePlan, optimizeMaxPower, getSession, createSession, updateSession, listSessions } from './api'
 import type { Device, OptimalLayouts, OptimizationObjective, OptimizationSuggestion, SessionData, SitePlanData } from './types/api'
 
 import DeviceCatalog from './components/DeviceCatalog'
@@ -40,6 +40,14 @@ export default function App() {
   const [appliedSnapshots, setAppliedSnapshots] = useState<{ quantities: Record<number, number>; label: string; type: 'apply' | 'manual' }[]>([])
   const [sessionNames, setSessionNames] = useState<SessionData[]>([])
   const [optimalLayouts, setOptimalLayouts] = useState<OptimalLayouts>({})
+  const [constraintMode, setConstraintMode] = useState<'power' | 'area'>('power')
+  const [targetAreaSqFt, setTargetAreaSqFt] = useState<number | null>(null)
+  const [optimalMaxPower, setOptimalMaxPower] = useState<SitePlanData | null | undefined>(undefined)
+  const [pendingTargetPlan, setPendingTargetPlan] = useState<{
+    plan: SitePlanData
+    quantities: Record<number, number>
+    requestedMWh: number
+  } | null>(null)
 
   useEffect(() => {
     localStorage.setItem('draft_quantities', JSON.stringify(quantities))
@@ -110,6 +118,35 @@ export default function App() {
     })
     return () => { cancelled = true }
   }, [sitePlan]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // When in fixed-area mode, find the max-power plan for the given target area.
+  useEffect(() => {
+    if (constraintMode !== 'area') return
+    const area = targetAreaSqFt ?? sitePlan?.metrics.boundingAreaSqFt
+    if (!area) return
+    let cancelled = false
+    setOptimalMaxPower(undefined) // loading
+    optimizeMaxPower(area).then(res => {
+      if (cancelled) return
+      setOptimalMaxPower(res.success && res.data ? res.data : null)
+    })
+    return () => { cancelled = true }
+  }, [constraintMode, targetAreaSqFt, sitePlan?.metrics.boundingAreaSqFt]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleConstraintModeChange = (mode: 'power' | 'area') => {
+    setConstraintMode(mode)
+    if (mode === 'area') {
+      // Default target area = current plan's area
+      setTargetAreaSqFt(sitePlan?.metrics.boundingAreaSqFt ?? null)
+    } else {
+      setTargetAreaSqFt(null)
+      setOptimalMaxPower(undefined)
+    }
+  }
+
+  const handleTargetAreaChange = (areaSqFt: number) => {
+    setTargetAreaSqFt(areaSqFt)
+  }
 
   const refreshSessionNames = () =>
     listSessions().then(r => { if (r.success && r.data) setSessionNames(r.data.sessions) })
@@ -332,15 +369,34 @@ export default function App() {
     const planObjective = objectiveRef.current === 'user_plan' ? 'min_area' : objectiveRef.current
     const res = await generateSitePlan(configured, planObjective)
     setIsGenerating(false)
+    setTimeout(() => setLoadingSplashFading(true), 600)
+    setTimeout(() => setLoadingSplash(false), 1000)
+
     if (res.success && res.data) {
-      setQuantities(next)
-      setSitePlan(res.data)
-      setAppliedSnapshots([])
+      const achievedMWh = res.data.metrics.totalEnergyMWh
+      if (Math.abs(achievedMWh - targetMWh) > 0.1) {
+        // Can't hit the exact target — ask for consent before applying
+        setPendingTargetPlan({ plan: res.data, quantities: next, requestedMWh: targetMWh })
+      } else {
+        setQuantities(next)
+        setSitePlan(res.data)
+        setAppliedSnapshots([])
+      }
     } else {
       setPlanError(res.error?.message ?? 'Failed to generate layout.')
     }
-    setTimeout(() => setLoadingSplashFading(true), 600)
-    setTimeout(() => setLoadingSplash(false), 1000)
+  }
+
+  const handleConfirmTargetPlan = () => {
+    if (!pendingTargetPlan) return
+    setQuantities(pendingTargetPlan.quantities)
+    setSitePlan(pendingTargetPlan.plan)
+    setAppliedSnapshots([])
+    setPendingTargetPlan(null)
+  }
+
+  const handleCancelTargetPlan = () => {
+    setPendingTargetPlan(null)
   }
 
   const handleSaveAs = async (newName: string): Promise<boolean> => {
@@ -483,6 +539,14 @@ export default function App() {
               currentSiteName={siteName}
               sessionNames={sessionNames}
               optimalLayouts={optimalLayouts}
+              constraintMode={constraintMode}
+              onConstraintModeChange={handleConstraintModeChange}
+              targetAreaSqFt={targetAreaSqFt ?? sitePlan.metrics.boundingAreaSqFt}
+              onTargetAreaChange={handleTargetAreaChange}
+              optimalMaxPower={optimalMaxPower}
+              pendingTargetPlan={pendingTargetPlan ? { requestedMWh: pendingTargetPlan.requestedMWh, achievedMWh: pendingTargetPlan.plan.metrics.totalEnergyMWh } : null}
+              onConfirmTargetPlan={handleConfirmTargetPlan}
+              onCancelTargetPlan={handleCancelTargetPlan}
             />
           )}
         </main>

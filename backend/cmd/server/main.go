@@ -30,6 +30,7 @@ func main() {
 	mux.HandleFunc("/api/devices", devicesHandler.GetDevices)
 	mux.HandleFunc("/api/site-plan", sitePlanHandler.GenerateSitePlan)
 	mux.HandleFunc("/api/optimize", sitePlanHandler.OptimizeSitePlan)
+	mux.HandleFunc("/api/optimize-power", sitePlanHandler.OptimizeMaxPower)
 	mux.HandleFunc("GET /api/sessions", sessionHandler.ListSessions)
 	mux.HandleFunc("POST /api/sessions", sessionHandler.CreateSession)
 	mux.HandleFunc("GET /api/sessions/{sessionId}", sessionHandler.GetSession)

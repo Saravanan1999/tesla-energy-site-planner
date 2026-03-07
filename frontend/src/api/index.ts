@@ -40,6 +40,9 @@ export const generateSitePlan = (devices: ConfiguredDevice[], objective?: Optimi
 export const optimizeSitePlan = (devices: ConfiguredDevice[], objective: OptimizationObjective) =>
   post<SitePlanData>('/api/optimize', { devices, objective })
 
+export const optimizeMaxPower = (targetAreaSqFt: number) =>
+  post<SitePlanData>('/api/optimize-power', { targetAreaSqFt })
+
 export const createSession = (name: string, devices: ConfiguredDevice[], objective?: OptimizationObjective, sitePlan?: SitePlanData) =>
   post<SessionData>('/api/sessions', { name, devices, objective: objective ?? 'min_area', sitePlan })
 

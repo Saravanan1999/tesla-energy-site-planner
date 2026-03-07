@@ -626,6 +626,80 @@ func (s *SitePlanService) Optimize(ctx context.Context, req models.GenerateSiteP
 	return bestPlan, nil
 }
 
+// OptimizeMaxPower finds the device type and quantity that maximises total energy within
+// the given site area. Among plans with equal (or near-equal) energy, the cheapest is preferred.
+func (s *SitePlanService) OptimizeMaxPower(ctx context.Context, targetAreaSqFt int) (*models.SitePlanData, *models.APIError) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, name, width_ft, height_ft, energy_mwh, cost FROM devices WHERE category = 'battery'`,
+	)
+	if err != nil {
+		return nil, &models.APIError{Code: models.ErrorInternal, Message: "failed to fetch devices"}
+	}
+	defer rows.Close()
+
+	var catalog []deviceSpec
+	for rows.Next() {
+		var d deviceSpec
+		if err := rows.Scan(&d.id, &d.name, &d.widthFt, &d.heightFt, &d.energyMWh, &d.cost); err != nil {
+			return nil, &models.APIError{Code: models.ErrorInternal, Message: "failed to read devices"}
+		}
+		catalog = append(catalog, d)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, &models.APIError{Code: models.ErrorInternal, Message: "failed to iterate devices"}
+	}
+
+	var bestPlan *models.SitePlanData
+
+	for _, d := range catalog {
+		if d.widthFt <= 0 || d.heightFt <= 0 || d.energyMWh <= 0 {
+			continue
+		}
+		// Upper bound: fill target area twice over (ignoring margins) — gives a safe binary-search ceiling.
+		hiQty := targetAreaSqFt/(d.widthFt*d.heightFt)*2 + 10
+		if hiQty <= 0 {
+			continue
+		}
+
+		// Binary search: find the maximum quantity of this device type that still fits.
+		lo, hi, maxFitting := 1, hiQty, 0
+		for lo <= hi {
+			mid := (lo + hi) / 2
+			plan, apiErr := s.Generate(ctx, models.GenerateSitePlanRequest{
+				Devices:   []models.ConfiguredDevice{{ID: d.id, Quantity: mid}},
+				Objective: models.ObjectiveMinArea, // pack as tight as possible
+			})
+			if apiErr != nil || plan.Metrics.BoundingAreaSqFt > targetAreaSqFt {
+				hi = mid - 1
+			} else {
+				maxFitting = mid
+				lo = mid + 1
+			}
+		}
+		if maxFitting <= 0 {
+			continue
+		}
+
+		plan, apiErr := s.Generate(ctx, models.GenerateSitePlanRequest{
+			Devices:   []models.ConfiguredDevice{{ID: d.id, Quantity: maxFitting}},
+			Objective: models.ObjectiveMinArea,
+		})
+		if apiErr != nil {
+			continue
+		}
+
+		// Primary: maximise energy. Tiebreaker: minimise cost.
+		if bestPlan == nil ||
+			plan.Metrics.TotalEnergyMWh > bestPlan.Metrics.TotalEnergyMWh ||
+			(math.Abs(plan.Metrics.TotalEnergyMWh-bestPlan.Metrics.TotalEnergyMWh) < 0.01 &&
+				plan.Metrics.TotalCost < bestPlan.Metrics.TotalCost) {
+			bestPlan = plan
+		}
+	}
+
+	return bestPlan, nil
+}
+
 func objectiveImprovement(obj models.OptimizationObjective, candidate, baseline models.SiteMetrics) float64 {
 	switch obj {
 	case models.ObjectiveMinArea:
