@@ -114,15 +114,20 @@ function LayoutBlock({ item, onRemove, isExiting, isNew, growDelay, slideDelay, 
   return (
     <div
       ref={divRef}
-      className={`absolute flex items-stretch ${isExiting
+      className={`absolute flex items-stretch group ${isExiting
         ? (isBattery ? 'animate-shrink-battery' : 'animate-shrink-transformer')
         : isNew
           ? (isBattery ? 'animate-grow-battery' : 'animate-grow-transformer')
           : ''
       } ${isExiting ? 'pointer-events-none' : ''}`}
       style={{ left: item.xFt * SCALE, top: item.yFt * SCALE, width: w, height: h, animationDelay: isNew && growDelay ? `${growDelay}ms` : undefined }}
-      title={`${item.label} — ${item.widthFt}×${item.heightFt}ft${item.energyMWh ? ` · ${item.energyMWh} MWh` : ''}`}
     >
+      {/* Device tooltip */}
+      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 hidden group-hover:block pointer-events-none z-50 whitespace-nowrap">
+        <div className="px-2 py-1 rounded bg-gray-900 border border-gray-700 shadow-xl text-[10px] text-gray-200">
+          {item.label} — {item.widthFt}×{item.heightFt}ft{item.energyMWh ? ` · ${item.energyMWh} MWh` : ''}
+        </div>
+      </div>
       {/* Body */}
       <div className={`relative flex-1 flex items-center gap-px p-0.5 rounded-sm border overflow-hidden
         ${isBattery
@@ -219,6 +224,7 @@ export default function SiteCanvas({ sitePlan, isLoading, error, onRemove, siteN
   const [minCanvasSize, setMinCanvasSize] = useState<{ w: number; h: number } | null>(null)
   const [perimeterTooltip, setPerimeterTooltip] = useState<{ x: number; y: number } | null>(null)
   const [gapTooltip, setGapTooltip] = useState<{ x: number; y: number } | null>(null)
+  const [hoveredRow, setHoveredRow] = useState<number | null>(null)
   const prevLayoutRef = useRef<LayoutItem[]>([])
   const animTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const prevCanvasRef = useRef({ w: canvasW, h: canvasH })
@@ -491,25 +497,40 @@ export default function SiteCanvas({ sitePlan, isLoading, error, onRemove, siteN
 
           {/* Zoom controls */}
           <span className="flex items-center gap-0.5 border-l border-gray-700/60 pl-3">
-            <button
-              onClick={() => { const z = Math.max(0.15, zoom - 0.25); setZoom(z) }}
-              className="w-5 h-5 flex items-center justify-center rounded text-gray-400 hover:bg-gray-700 hover:text-gray-200 transition-colors text-sm leading-none"
-            >−</button>
+            <span className="text-[10px] text-gray-500 uppercase tracking-widest mr-1.5">Zoom level</span>
+            <div className="relative group/zoomout">
+              <button
+                onClick={() => { const z = Math.max(0.15, zoom - 0.25); setZoom(z) }}
+                className="w-5 h-5 flex items-center justify-center rounded text-gray-400 hover:bg-gray-700 hover:text-gray-200 transition-colors text-sm leading-none"
+              >−</button>
+              <div className="absolute top-full right-0 mt-1.5 hidden group-hover/zoomout:block pointer-events-none z-50 whitespace-nowrap">
+                <div className="px-2 py-1 rounded bg-gray-900 border border-gray-700 shadow-xl text-[10px] text-gray-200">Zoom out</div>
+              </div>
+            </div>
             <span className="w-10 text-center tabular-nums">{Math.round(zoom * 100)}%</span>
-            <button
-              onClick={() => { const z = Math.min(5, zoom + 0.25); setZoom(z) }}
-              className="w-5 h-5 flex items-center justify-center rounded text-gray-400 hover:bg-gray-700 hover:text-gray-200 transition-colors text-sm leading-none"
-            >+</button>
-            <button
-              onClick={resetView}
-              title="Reset view"
-              className="w-5 h-5 flex items-center justify-center rounded text-gray-400 hover:bg-gray-700 hover:text-gray-200 transition-colors ml-0.5"
-            >
-              <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round">
-                <path d="M9.5 5.5A4 4 0 1 1 7 2" />
-                <path d="M7 1v2h2" />
-              </svg>
-            </button>
+            <div className="relative group/zoomin">
+              <button
+                onClick={() => { const z = Math.min(5, zoom + 0.25); setZoom(z) }}
+                className="w-5 h-5 flex items-center justify-center rounded text-gray-400 hover:bg-gray-700 hover:text-gray-200 transition-colors text-sm leading-none"
+              >+</button>
+              <div className="absolute top-full right-0 mt-1.5 hidden group-hover/zoomin:block pointer-events-none z-50 whitespace-nowrap">
+                <div className="px-2 py-1 rounded bg-gray-900 border border-gray-700 shadow-xl text-[10px] text-gray-200">Zoom in</div>
+              </div>
+            </div>
+            <div className="relative group/reset ml-0.5">
+              <button
+                onClick={resetView}
+                className="w-5 h-5 flex items-center justify-center rounded text-gray-400 hover:bg-gray-700 hover:text-gray-200 transition-colors"
+              >
+                <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round">
+                  <path d="M9.5 5.5A4 4 0 1 1 7 2" />
+                  <path d="M7 1v2h2" />
+                </svg>
+              </button>
+              <div className="absolute top-full right-0 mt-1.5 hidden group-hover/reset:block pointer-events-none z-50 whitespace-nowrap">
+                <div className="px-2 py-1 rounded bg-gray-900 border border-gray-700 shadow-xl text-[10px] text-gray-200">Reset view</div>
+              </div>
+            </div>
           </span>
         </div>
       </div>
@@ -529,47 +550,57 @@ export default function SiteCanvas({ sitePlan, isLoading, error, onRemove, siteN
         <div
           className="relative bg-slate-900 border border-slate-700 rounded shadow-xl shadow-black/40"
           style={{ width: displayedW, height: displayedH, minWidth: displayedW, minHeight: displayedH, transition: 'width 0.28s ease-out, height 0.28s ease-out' }}
+          onMouseMove={(e) => {
+            const rect = e.currentTarget.getBoundingClientRect()
+            const localY = (e.clientY - rect.top) / zoom
+            const batteryRows = [...new Set(displayLayout.filter(i => i.zone === 'battery' && !exitingIds.has(i.id)).map(i => i.yFt))].sort((a, b) => a - b)
+            const idx = batteryRows.findIndex(yFt => {
+              const h = displayLayout.find(i => i.zone === 'battery' && i.yFt === yFt)?.heightFt ?? 0
+              return localY >= yFt * SCALE && localY < (yFt + h) * SCALE
+            })
+            setHoveredRow(idx === -1 ? null : idx)
+          }}
+          onMouseLeave={() => setHoveredRow(null)}
         >
           <GridLines widthFt={Math.round(displayedW / SCALE)} heightFt={Math.round(displayedH / SCALE)} />
 
-          {/* Perimeter margin indicator */}
-          <div
-            className="absolute border border-dashed border-gray-700/50 pointer-events-none rounded"
-            style={{
-              left: safetyAssumptions.perimeterMarginFt * SCALE,
-              top: safetyAssumptions.perimeterMarginFt * SCALE,
-              width: (metrics.siteWidthFt - 2 * safetyAssumptions.perimeterMarginFt) * SCALE,
-              height: (metrics.siteHeightFt - 2 * safetyAssumptions.perimeterMarginFt) * SCALE,
-              transition: 'width 0.28s ease-out, height 0.28s ease-out',
-            }}
-          />
-
-          {/* Perimeter hover strips */}
+          {/* Perimeter strips */}
           {(() => {
             const m = safetyAssumptions.perimeterMarginFt * SCALE
-            const onEnter = (e: React.MouseEvent) => setPerimeterTooltip({ x: e.clientX, y: e.clientY })
-            const onMove  = (e: React.MouseEvent) => setPerimeterTooltip({ x: e.clientX, y: e.clientY })
+            const onEnter = (e: React.MouseEvent) => {
+              const r = e.currentTarget.getBoundingClientRect()
+              setPerimeterTooltip({ x: r.left + r.width / 2, y: r.top + r.height / 2 })
+            }
             const onLeave = () => setPerimeterTooltip(null)
-            const cls = 'absolute z-20 cursor-default hover:bg-blue-400/5'
+            const stripeBg = 'repeating-linear-gradient(45deg, rgba(51,65,85,0.35), rgba(51,65,85,0.35) 3px, transparent 3px, transparent 10px)'
+            const label = `Safety Perimeter — ${safetyAssumptions.perimeterMarginFt} ft`
+            const labelCls = 'text-[8px] font-semibold tracking-wider uppercase text-slate-500 whitespace-nowrap pointer-events-none select-none'
             return (
               <>
-                <div className={cls} style={{ top: 0, left: 0, right: 0, height: m }} onMouseEnter={onEnter} onMouseMove={onMove} onMouseLeave={onLeave} />
-                <div className={cls} style={{ bottom: 0, left: 0, right: 0, height: m }} onMouseEnter={onEnter} onMouseMove={onMove} onMouseLeave={onLeave} />
-                <div className={cls} style={{ top: m, bottom: m, left: 0, width: m }} onMouseEnter={onEnter} onMouseMove={onMove} onMouseLeave={onLeave} />
-                <div className={cls} style={{ top: m, bottom: m, right: 0, width: m }} onMouseEnter={onEnter} onMouseMove={onMove} onMouseLeave={onLeave} />
+                {/* Top */}
+                <div className="absolute z-20 cursor-default flex items-center justify-center overflow-hidden" style={{ top: 0, left: 0, right: 0, height: m, background: stripeBg }} onMouseEnter={onEnter} onMouseLeave={onLeave}>
+                  <div className="absolute bottom-0 left-0 right-0 h-[2px]" style={{ background: 'repeating-linear-gradient(90deg, #475569 0px, #475569 6px, transparent 6px, transparent 12px)' }} />
+                  <span className={labelCls}>{label}</span>
+                </div>
+                {/* Bottom */}
+                <div className="absolute z-20 cursor-default flex items-center justify-center overflow-hidden" style={{ bottom: 0, left: 0, right: 0, height: m, background: stripeBg }} onMouseEnter={onEnter} onMouseLeave={onLeave}>
+                  <div className="absolute top-0 left-0 right-0 h-[2px]" style={{ background: 'repeating-linear-gradient(90deg, #475569 0px, #475569 6px, transparent 6px, transparent 12px)' }} />
+                  <span className={labelCls}>{label}</span>
+                </div>
+                {/* Left */}
+                <div className="absolute z-20 cursor-default flex items-center justify-center overflow-hidden" style={{ top: m, bottom: m, left: 0, width: m, background: stripeBg }} onMouseEnter={onEnter} onMouseLeave={onLeave}>
+                  <div className="absolute top-0 bottom-0 right-0 w-[2px]" style={{ background: 'repeating-linear-gradient(180deg, #475569 0px, #475569 6px, transparent 6px, transparent 12px)' }} />
+                  <span className={labelCls} style={{ transform: 'rotate(-90deg)' }}>{label}</span>
+                </div>
+                {/* Right */}
+                <div className="absolute z-20 cursor-default flex items-center justify-center overflow-hidden" style={{ top: m, bottom: m, right: 0, width: m, background: stripeBg }} onMouseEnter={onEnter} onMouseLeave={onLeave}>
+                  <div className="absolute top-0 bottom-0 left-0 w-[2px]" style={{ background: 'repeating-linear-gradient(180deg, #475569 0px, #475569 6px, transparent 6px, transparent 12px)' }} />
+                  <span className={labelCls} style={{ transform: 'rotate(90deg)' }}>{label}</span>
+                </div>
               </>
             )
           })()}
 
-          {/* Perimeter tooltip */}
-          {perimeterTooltip && (
-            <div
-              className="fixed z-50 pointer-events-none px-2.5 py-1.5 rounded-lg bg-gray-800 border border-gray-600 shadow-xl text-xs text-gray-200 whitespace-nowrap"
-              style={{ left: perimeterTooltip.x + 14, top: perimeterTooltip.y - 10 }}
-            >
-              Safety perimeter — {safetyAssumptions.perimeterMarginFt} ft clearance from site boundary
-            </div>
-          )}
 
           {/* Service aisle between battery zone and transformer zone */}
           {(() => {
@@ -582,22 +613,28 @@ export default function SiteCanvas({ sitePlan, isLoading, error, onRemove, siteN
             if (aisleH <= 0) return null
             return (
               <div
-                className="absolute left-0 right-0 flex items-center justify-center pointer-events-none"
+                className="absolute left-0 right-0 pointer-events-none"
                 style={{ top: aisleTopFt * SCALE, height: aisleH }}
               >
-                {/* Dashed top border */}
-                <div className="absolute top-0 left-0 right-0 border-t border-dashed border-yellow-700/40" />
-                {/* Dashed bottom border */}
-                <div className="absolute bottom-0 left-0 right-0 border-t border-dashed border-yellow-700/40" />
                 {/* Background tint */}
-                <div className="absolute inset-0 bg-yellow-900/10" />
-                {/* Label */}
-                <div className="relative flex items-center gap-2 z-10">
-                  <div className="h-px w-8 bg-yellow-700/50" />
-                  <span className="text-[9px] font-medium tracking-widest uppercase text-yellow-600/70 whitespace-nowrap">
-                    Service Aisle ({safetyAssumptions.transformerBufferFt} ft)
-                  </span>
-                  <div className="h-px w-8 bg-yellow-700/50" />
+                <div className="absolute inset-0 bg-amber-950/40" />
+                {/* Top border */}
+                <div className="absolute top-0 left-0 right-0 border-t-2 border-dashed border-amber-500/50" />
+                {/* Bottom border */}
+                <div className="absolute bottom-0 left-0 right-0 border-t-2 border-dashed border-amber-500/50" />
+                {/* Centered label */}
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <div className="flex items-center gap-3">
+                    <div className="h-px flex-1 w-12 bg-amber-600/40" />
+                    <div className="flex items-center gap-2 px-3 py-1 rounded bg-amber-900/60 border border-amber-600/40">
+                      <span className="text-amber-500/70 text-[8px] leading-none">⚠</span>
+                      <span className="text-[9px] font-semibold tracking-widest uppercase text-amber-400 whitespace-nowrap">
+                        Service Aisle — {safetyAssumptions.transformerBufferFt} ft
+                      </span>
+                      <span className="text-amber-500/70 text-[8px] leading-none">⚠</span>
+                    </div>
+                    <div className="h-px flex-1 w-12 bg-amber-600/40" />
+                  </div>
                 </div>
               </div>
             )
@@ -625,14 +662,17 @@ export default function SiteCanvas({ sitePlan, isLoading, error, onRemove, siteN
                 gaps.push(
                   <div
                     key={`gap-${left.id}`}
-                    className="absolute z-10 cursor-default hover:bg-white/8"
+                    className="absolute z-10 cursor-default hover:bg-white/8 flex items-center justify-center overflow-hidden"
                     style={{ left: gapX, top: gapY, width: gapW, height: gapH }}
-                    onMouseEnter={e => setGapTooltip({ x: e.clientX, y: e.clientY })}
-                    onMouseMove={e => setGapTooltip({ x: e.clientX, y: e.clientY })}
+                    onMouseEnter={e => { const r = e.currentTarget.getBoundingClientRect(); setGapTooltip({ x: r.left + r.width / 2, y: r.top }) }}
                     onMouseLeave={() => setGapTooltip(null)}
                   >
                     <div className="absolute inset-y-1 left-0 border-l border-dashed border-white/20" />
                     <div className="absolute inset-y-1 right-0 border-r border-dashed border-white/20" />
+                    <span
+                      className="text-[7px] font-medium text-gray-600 whitespace-nowrap pointer-events-none select-none"
+                      style={{ transform: 'rotate(-90deg)' }}
+                    >{safetyAssumptions.sideClearanceFt} ft</span>
                   </div>
                 )
               }
@@ -640,15 +680,66 @@ export default function SiteCanvas({ sitePlan, isLoading, error, onRemove, siteN
             return gaps
           })()}
 
-          {/* Side clearance tooltip */}
-          {gapTooltip && (
-            <div
-              className="fixed z-50 pointer-events-none px-2.5 py-1.5 rounded-lg bg-gray-800 border border-gray-600 shadow-xl text-xs text-gray-200 whitespace-nowrap"
-              style={{ left: gapTooltip.x + 14, top: gapTooltip.y - 10 }}
-            >
-              {safetyAssumptions.sideClearanceFt} ft side clearance — maintenance access between devices
-            </div>
-          )}
+
+          {/* Row aisle gaps between battery rows */}
+          {(() => {
+            const batteryRows = [...new Set(
+              displayLayout.filter(i => i.zone === 'battery' && !exitingIds.has(i.id)).map(i => i.yFt)
+            )].sort((a, b) => a - b)
+            return batteryRows.slice(0, -1).map((yFt, idx) => {
+              const rowH = displayLayout.find(i => i.zone === 'battery' && i.yFt === yFt)?.heightFt ?? 0
+              const nextYFt = batteryRows[idx + 1]
+              const aisleTop = (yFt + rowH) * SCALE
+              const aisleH = nextYFt * SCALE - aisleTop
+              if (aisleH <= 0) return null
+              return (
+                <div
+                  key={`row-aisle-${idx}`}
+                  className="absolute left-0 right-0 pointer-events-none"
+                  style={{ top: aisleTop, height: aisleH }}
+                >
+                  <div className="absolute inset-0 bg-slate-800/30" />
+                  <div className="absolute top-0 left-0 right-0 border-t border-dashed border-slate-500/40" />
+                  <div className="absolute bottom-0 left-0 right-0 border-b border-dashed border-slate-500/40" />
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <span className="text-[8px] font-semibold tracking-widest uppercase text-slate-500 whitespace-nowrap select-none">
+                      Row Aisle — {safetyAssumptions.rowAisleFt} ft
+                    </span>
+                  </div>
+                </div>
+              )
+            })
+          })()}
+
+          {/* Battery row hover zones */}
+          {(() => {
+            const batteryRows = [...new Set(
+              displayLayout
+                .filter(i => i.zone === 'battery' && !exitingIds.has(i.id))
+                .map(i => i.yFt)
+            )].sort((a, b) => a - b)
+            return batteryRows.map((yFt, idx) => {
+              const rowH = displayLayout.find(i => i.zone === 'battery' && i.yFt === yFt)?.heightFt ?? 0
+              const isHovered = hoveredRow === idx
+              return (
+                <div
+                  key={`row-${yFt}`}
+                  className="absolute left-0 right-0 pointer-events-none transition-colors duration-100"
+                  style={{ top: yFt * SCALE, height: rowH * SCALE, zIndex: 25, backgroundColor: isHovered ? 'rgba(255,255,255,0.05)' : 'transparent' }}
+                >
+                  {isHovered && (
+                    <>
+                      <div className="absolute top-0 left-0 right-0 h-px bg-white/20" />
+                      <div className="absolute bottom-0 left-0 right-0 h-px bg-white/20" />
+                      <span className="absolute top-1.5 left-2 text-[9px] font-bold tracking-widest uppercase text-white/50 select-none">
+                        Battery Row {idx + 1}
+                      </span>
+                    </>
+                  )}
+                </div>
+              )
+            })
+          })()}
 
           {/* Layout items — rendered from frozen displayLayout during exit animation */}
           {displayLayout.map(item => (
@@ -673,6 +764,24 @@ export default function SiteCanvas({ sitePlan, isLoading, error, onRemove, siteN
           </div>
         </div>
         </div>{/* end transform wrapper */}
+
+        {/* Tooltips rendered outside the transform wrapper so fixed positioning is viewport-relative */}
+        {perimeterTooltip && (
+          <div
+            className="fixed z-50 pointer-events-none px-2.5 py-1.5 rounded-lg bg-gray-800 border border-gray-600 shadow-xl text-xs text-gray-200 whitespace-nowrap"
+            style={{ left: perimeterTooltip.x, top: perimeterTooltip.y, transform: 'translate(-50%, -50%)' }}
+          >
+            Safety perimeter — {safetyAssumptions.perimeterMarginFt} ft clearance from site boundary
+          </div>
+        )}
+        {gapTooltip && (
+          <div
+            className="fixed z-50 pointer-events-none px-2.5 py-1.5 rounded-lg bg-gray-800 border border-gray-600 shadow-xl text-xs text-gray-200 whitespace-nowrap"
+            style={{ left: gapTooltip.x, top: gapTooltip.y - 8, transform: 'translate(-50%, -100%)' }}
+          >
+            {safetyAssumptions.sideClearanceFt} ft side clearance — maintenance access between devices
+          </div>
+        )}
       </div>{/* end pan/zoom container */}
 
       {/* Warnings */}
