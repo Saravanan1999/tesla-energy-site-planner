@@ -22,6 +22,10 @@ export default function App() {
   const [savedToast, setSavedToast] = useState<'in' | 'out' | null>(null)
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(() => localStorage.getItem('draft_sessionId'))
   const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const [dataLoaded, setDataLoaded] = useState(false)
+  const [animDone, setAnimDone] = useState(false)
+  const [splashFading, setSplashFading] = useState(false)
+  const [splashGone, setSplashGone] = useState(false)
 
   useEffect(() => {
     localStorage.setItem('draft_quantities', JSON.stringify(quantities))
@@ -36,6 +40,19 @@ export default function App() {
     else localStorage.removeItem('draft_sessionId')
   }, [currentSessionId])
 
+  // Bar animation completes after 5 bars × 220ms stagger + 600ms each ≈ 1.5s
+  useEffect(() => {
+    const t = setTimeout(() => setAnimDone(true), 1500)
+    return () => clearTimeout(t)
+  }, [])
+
+  useEffect(() => {
+    if (dataLoaded && animDone) {
+      setSplashFading(true)
+      setTimeout(() => setSplashGone(true), 380)
+    }
+  }, [dataLoaded, animDone])
+
   useEffect(() => {
     fetchDevices().then(res => {
       if (res.success && res.data) {
@@ -49,7 +66,10 @@ export default function App() {
             setIsGenerating(false)
             if (planRes.success && planRes.data) setSitePlan(planRes.data)
             else setPlanError(planRes.error?.message ?? 'Failed to restore layout.')
+            setDataLoaded(true)
           })
+        } else {
+          setDataLoaded(true)
         }
       }
     })
@@ -133,6 +153,21 @@ export default function App() {
 
   return (
     <div className="h-screen flex flex-col bg-gray-950 text-white overflow-hidden">
+      {/* Splash screen */}
+      {!splashGone && (
+        <div className={`fixed inset-0 z-[100] bg-gray-950 flex flex-col items-center justify-center gap-5 ${splashFading ? 'splash-exit' : ''}`}>
+          <div className="flex items-center gap-3">
+            {[75, 60, 45, 30, 15].map((h, i) => (
+              <div
+                key={i}
+                className="w-5 bg-blue-500 rounded splash-bar"
+                style={{ height: `${h}px`, animationDelay: `${i * 220}ms` }}
+              />
+            ))}
+          </div>
+          <p className="text-xs text-gray-500 tracking-[0.2em] uppercase">Tesla Energy Site Planner</p>
+        </div>
+      )}
       {/* Save success toast */}
       {savedToast && (
         <div className={`fixed top-16 left-1/2 -translate-x-1/2 z-50 pointer-events-none ${savedToast === 'in' ? 'animate-toast-in' : 'animate-toast-out'}`}>
