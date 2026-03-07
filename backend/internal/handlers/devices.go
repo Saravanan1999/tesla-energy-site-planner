@@ -23,7 +23,7 @@ func (h *DevicesHandler) GetDevices(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rows, err := h.db.QueryContext(r.Context(), `
-		SELECT type, label, category, width_ft, height_ft, energy_mwh, cost, release_year
+		SELECT id, name, category, width_ft, height_ft, energy_mwh, cost, release_year
 		FROM devices
 		ORDER BY id ASC
 	`)
@@ -36,7 +36,7 @@ func (h *DevicesHandler) GetDevices(w http.ResponseWriter, r *http.Request) {
 	devices := []models.Device{}
 	for rows.Next() {
 		var d models.Device
-		if err := rows.Scan(&d.Type, &d.Label, &d.Category, &d.WidthFt, &d.HeightFt, &d.EnergyMWh, &d.Cost, &d.ReleaseYear); err != nil {
+		if err := rows.Scan(&d.ID, &d.Name, &d.Category, &d.WidthFt, &d.HeightFt, &d.EnergyMWh, &d.Cost, &d.ReleaseYear); err != nil {
 			writeDevicesError(w, http.StatusInternalServerError, "SCAN_ERROR", "failed to read devices")
 			return
 		}

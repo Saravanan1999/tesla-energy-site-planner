@@ -8,8 +8,8 @@ const (
 )
 
 type Device struct {
-	Type        string         `json:"type"`
-	Label       string         `json:"label"`
+	ID          int64          `json:"id"`
+	Name        string         `json:"name"`
 	Category    DeviceCategory `json:"category"`
 	WidthFt     int            `json:"widthFt"`
 	HeightFt    int            `json:"heightFt"`

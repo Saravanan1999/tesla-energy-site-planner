@@ -12,20 +12,20 @@ func seed(db *sql.DB) error {
 	}
 
 	devices := []struct {
-		typ, label, category        string
-		widthFt, heightFt           int
-		energyMWh                   float64
-		cost, releaseYear           int
+		name, category    string
+		widthFt, heightFt int
+		energyMWh         float64
+		cost, releaseYear int
 	}{
-		{"MegapackXL", "Megapack XL", "battery", 40, 10, 4, 120000, 2022},
-		{"Megapack2", "Megapack 2", "battery", 30, 10, 3, 80000, 2021},
-		{"Megapack", "Megapack", "battery", 30, 10, 2, 50000, 2005},
-		{"PowerPack", "PowerPack", "battery", 10, 10, 1, 10000, 2000},
+		{"Megapack XL", "battery", 40, 10, 4, 120000, 2022},
+		{"Megapack 2", "battery", 30, 10, 3, 80000, 2021},
+		{"Megapack", "battery", 30, 10, 2, 50000, 2005},
+		{"PowerPack", "battery", 10, 10, 1, 10000, 2000},
 	}
 
 	stmt, err := db.Prepare(`
-		INSERT INTO devices (type, label, category, width_ft, height_ft, energy_mwh, cost, release_year)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO devices (name, category, width_ft, height_ft, energy_mwh, cost, release_year)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
 	`)
 	if err != nil {
 		return err
@@ -33,7 +33,7 @@ func seed(db *sql.DB) error {
 	defer stmt.Close()
 
 	for _, d := range devices {
-		if _, err := stmt.Exec(d.typ, d.label, d.category, d.widthFt, d.heightFt, d.energyMWh, d.cost, d.releaseYear); err != nil {
+		if _, err := stmt.Exec(d.name, d.category, d.widthFt, d.heightFt, d.energyMWh, d.cost, d.releaseYear); err != nil {
 			return err
 		}
 	}
