@@ -75,6 +75,7 @@ export default function App() {
   // Ask the backend for the globally optimal plan for each objective.
   // The backend generates real layouts (with transformer costs) and only returns a
   // suggestion if it genuinely improves on the current plan's metrics.
+  // Results are a pure function of the current total MWh — deterministic for a given energy target.
   useEffect(() => {
     if (!sitePlan || !devices.length) return
     let cancelled = false
@@ -86,10 +87,21 @@ export default function App() {
         if (cancelled) return
         if (!res.success) return
         if (!res.data) {
+          // No valid candidates at this energy level (e.g. no device hits within tolerance)
           setOptimalLayouts(prev => ({ ...prev, [obj]: null }))
           return
         }
         const plan = res.data
+        // Compare globally optimal plan against current plan.
+        // If current plan is already at or better than the global optimum, mark as null (optimal).
+        // This comparison is purely metric-based, so the result is deterministic for a given MWh.
+        const isAlreadyOptimal = obj === 'min_area'
+          ? plan.metrics.boundingAreaSqFt >= sitePlan!.metrics.boundingAreaSqFt
+          : plan.metrics.totalCost >= sitePlan!.metrics.totalCost
+        if (isAlreadyOptimal) {
+          setOptimalLayouts(prev => ({ ...prev, [obj]: null }))
+          return
+        }
         const first = plan.requestedDevices[0]
         const dev = first ? deviceMap.get(first.id) : undefined
         const label = dev ? `${first.quantity}× ${dev.name}` : `${first?.quantity ?? ''}×`

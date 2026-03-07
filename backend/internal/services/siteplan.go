@@ -566,8 +566,11 @@ func (s *SitePlanService) Optimize(ctx context.Context, req models.GenerateSiteP
 		return nil, &models.APIError{Code: models.ErrorInternal, Message: "failed to iterate devices"}
 	}
 
+	// Find the globally best single-device plan for this objective at the given energy.
+	// We track the raw metric (area or cost) so the result is independent of the current plan —
+	// for a given total MWh, there is exactly one global optimum per objective.
 	var bestPlan *models.SitePlanData
-	var bestImprovement float64
+	bestMetric := math.MaxFloat64
 
 	for _, d := range catalog {
 		if d.energyMWh <= 0 {
@@ -575,7 +578,6 @@ func (s *SitePlanService) Optimize(ctx context.Context, req models.GenerateSiteP
 		}
 
 		// Try floor and ceil quantities; pick whichever yields energy closest to target.
-		// Skip this device if neither gets within 2% of the target — total power must stay fixed.
 		qFloor := int(math.Floor(targetEnergy / d.energyMWh))
 		qCeil := qFloor + 1
 		qty := qFloor
@@ -592,8 +594,9 @@ func (s *SitePlanService) Optimize(ctx context.Context, req models.GenerateSiteP
 			continue
 		}
 		candidateEnergy := float64(qty) * d.energyMWh
-		// Energy must not exceed target (never add power), and can decrease by at most 1%.
-		if candidateEnergy > targetEnergy*1.001 || candidateEnergy < targetEnergy*0.99 {
+		// Energy must not exceed target (never add power, 0.05 MWh float tolerance),
+		// and can decrease by at most 1%.
+		if candidateEnergy > targetEnergy+0.05 || candidateEnergy < targetEnergy*0.99 {
 			continue
 		}
 
@@ -605,13 +608,18 @@ func (s *SitePlanService) Optimize(ctx context.Context, req models.GenerateSiteP
 			continue
 		}
 
-		improvement := objectiveImprovement(objective, plan.Metrics, currentPlan.Metrics)
-		if improvement <= 0 {
+		var metric float64
+		switch objective {
+		case models.ObjectiveMinArea:
+			metric = float64(plan.Metrics.BoundingAreaSqFt)
+		case models.ObjectiveMinCost:
+			metric = float64(plan.Metrics.TotalCost)
+		default:
 			continue
 		}
-		if bestPlan == nil || improvement > bestImprovement {
+		if bestPlan == nil || metric < bestMetric {
 			bestPlan = plan
-			bestImprovement = improvement
+			bestMetric = metric
 		}
 	}
 
