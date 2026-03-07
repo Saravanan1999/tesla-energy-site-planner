@@ -21,11 +21,13 @@ func main() {
 
 	devicesHandler := handlers.NewDevicesHandler(db)
 	sitePlanHandler := handlers.NewSitePlanHandler(services.NewSitePlanService(db))
+	sessionHandler := handlers.NewSessionHandler(services.NewSessionService(db))
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/health", handlers.HealthCheck)
 	mux.HandleFunc("/api/devices", devicesHandler.GetDevices)
 	mux.HandleFunc("/api/site-plan", sitePlanHandler.GenerateSitePlan)
+	mux.HandleFunc("/api/session", sessionHandler.CreateSession)
 
 	addr := ":8080"
 	fmt.Printf("Server running on http://localhost%s\n", addr)
