@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -19,9 +20,17 @@ func NewSessionService(db *sql.DB) *SessionService {
 	return &SessionService{db: db}
 }
 
+// SessionRecord is the raw session as loaded from the DB, with devices
+// deserialized into ConfiguredDevice so they can be passed to SitePlanService.
+type SessionRecord struct {
+	Meta    models.SessionData
+	Devices []models.ConfiguredDevice
+}
+
 func (s *SessionService) Create(ctx context.Context, req models.CreateSessionRequest) (*models.SessionData, *models.APIError) {
-	// Validate name
-	if req.Name == "" {
+	// Normalize name
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
 		return nil, &models.APIError{
 			Code:    models.ErrorInvalidConfig,
 			Message: "Session config is invalid.",
@@ -29,7 +38,7 @@ func (s *SessionService) Create(ctx context.Context, req models.CreateSessionReq
 		}
 	}
 
-	// Validate devices
+	// Validate device quantities
 	var details []string
 	totalQuantity := 0
 	for _, d := range req.Devices {
@@ -41,7 +50,7 @@ func (s *SessionService) Create(ctx context.Context, req models.CreateSessionReq
 		details = append(details, "At least one battery must be selected.")
 	}
 
-	// Validate device IDs exist and are batteries
+	// Validate each device exists and is a battery
 	for _, d := range req.Devices {
 		if d.Quantity <= 0 {
 			continue
@@ -70,26 +79,80 @@ func (s *SessionService) Create(ctx context.Context, req models.CreateSessionReq
 		}
 	}
 
-	// Serialize devices to JSON for storage
+	// Serialize config
 	devicesJSON, err := json.Marshal(req.Devices)
 	if err != nil {
 		return nil, &models.APIError{Code: models.ErrorInternal, Message: "Failed to serialize devices."}
 	}
 
+	// Check if a session with this name already exists
+	var existingSessionID string
+	err = s.db.QueryRowContext(ctx,
+		`SELECT session_id FROM sessions WHERE name = ?`, name,
+	).Scan(&existingSessionID)
+
+	if err == sql.ErrNoRows {
+		return s.insert(ctx, name, string(devicesJSON))
+	}
+	if err != nil {
+		return nil, &models.APIError{Code: models.ErrorInternal, Message: "Failed to check existing session."}
+	}
+	return s.update(ctx, existingSessionID, name, string(devicesJSON))
+}
+
+func (s *SessionService) insert(ctx context.Context, name, devicesJSON string) (*models.SessionData, *models.APIError) {
 	sessionID := uuid.New().String()
 	savedAt := time.Now().UTC()
 
-	_, err = s.db.ExecContext(ctx,
+	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO sessions (session_id, name, devices, saved_at) VALUES (?, ?, ?, ?)`,
-		sessionID, req.Name, string(devicesJSON), savedAt.Format(time.RFC3339),
+		sessionID, name, devicesJSON, savedAt.Format(time.RFC3339),
 	)
 	if err != nil {
 		return nil, &models.APIError{Code: models.ErrorInternal, Message: "Failed to save session."}
 	}
 
-	return &models.SessionData{
-		SessionID: sessionID,
-		Name:      req.Name,
-		SavedAt:   savedAt,
+	return &models.SessionData{SessionID: sessionID, Name: name, SavedAt: savedAt}, nil
+}
+
+func (s *SessionService) update(ctx context.Context, sessionID, name, devicesJSON string) (*models.SessionData, *models.APIError) {
+	savedAt := time.Now().UTC()
+
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE sessions SET devices = ?, saved_at = ? WHERE session_id = ?`,
+		devicesJSON, savedAt.Format(time.RFC3339), sessionID,
+	)
+	if err != nil {
+		return nil, &models.APIError{Code: models.ErrorInternal, Message: "Failed to update session."}
+	}
+
+	return &models.SessionData{SessionID: sessionID, Name: name, SavedAt: savedAt}, nil
+}
+
+func (s *SessionService) GetByID(ctx context.Context, sessionID string) (*SessionRecord, *models.APIError) {
+	var name, devicesJSON, savedAtStr string
+	err := s.db.QueryRowContext(ctx,
+		`SELECT name, devices, saved_at FROM sessions WHERE session_id = ?`, sessionID,
+	).Scan(&name, &devicesJSON, &savedAtStr)
+	if err == sql.ErrNoRows {
+		return nil, &models.APIError{Code: models.ErrorInvalidConfig, Message: "Session not found."}
+	}
+	if err != nil {
+		return nil, &models.APIError{Code: models.ErrorInternal, Message: "Failed to load session."}
+	}
+
+	savedAt, err := time.Parse(time.RFC3339, savedAtStr)
+	if err != nil {
+		return nil, &models.APIError{Code: models.ErrorInternal, Message: "Failed to parse session timestamp."}
+	}
+
+	var devices []models.ConfiguredDevice
+	if err := json.Unmarshal([]byte(devicesJSON), &devices); err != nil {
+		return nil, &models.APIError{Code: models.ErrorInternal, Message: "Failed to deserialize session devices."}
+	}
+
+	return &SessionRecord{
+		Meta:    models.SessionData{SessionID: sessionID, Name: name, SavedAt: savedAt},
+		Devices: devices,
 	}, nil
 }

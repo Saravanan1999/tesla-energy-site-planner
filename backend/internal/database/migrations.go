@@ -17,7 +17,7 @@ func migrate(db *sql.DB) error {
 
 		CREATE TABLE IF NOT EXISTS sessions (
 			session_id TEXT    PRIMARY KEY,
-			name       TEXT    NOT NULL,
+			name       TEXT    NOT NULL UNIQUE,
 			devices    TEXT    NOT NULL,
 			saved_at   TEXT    NOT NULL
 		);
