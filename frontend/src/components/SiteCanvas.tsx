@@ -1,4 +1,4 @@
-import React, { useLayoutEffect, useRef, useState } from 'react'
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { SitePlanData, LayoutItem } from '../types/api'
 
 interface Props {
@@ -340,6 +340,53 @@ export default function SiteCanvas({ sitePlan, isLoading, error, onRemove, siteN
   const displayedW = minCanvasSize ? Math.max(canvasW, minCanvasSize.w) : canvasW
   const displayedH = minCanvasSize ? Math.max(canvasH, minCanvasSize.h) : canvasH
 
+  // Zoom & pan
+  const zoomRef = useRef(1)
+  const panRef  = useRef({ x: 24, y: 24 })
+  const [zoom, setZoomState] = useState(1)
+  const [pan,  setPanState]  = useState({ x: 24, y: 24 })
+  const [dragging, setDragging] = useState(false)
+  const isDragging = useRef(false)
+  const dragStart  = useRef({ x: 0, y: 0, px: 0, py: 0 })
+
+  const setZoom = (z: number) => { zoomRef.current = z; setZoomState(z) }
+  const setPan  = (p: { x: number; y: number }) => { panRef.current = p; setPanState(p) }
+  const resetView = () => { setZoom(1); setPan({ x: 24, y: 24 }) }
+
+  // Callback ref — runs whenever the container element mounts or unmounts,
+  // so the wheel listener is attached even when the canvas renders after sitePlan loads.
+  const [containerEl, setContainerEl] = useState<HTMLDivElement | null>(null)
+  const containerRef = setContainerEl
+
+  useEffect(() => {
+    if (!containerEl) return
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault()
+      const rect = containerEl.getBoundingClientRect()
+      const cx = e.clientX - rect.left
+      const cy = e.clientY - rect.top
+      const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12
+      const newZoom = Math.min(5, Math.max(0.15, zoomRef.current * factor))
+      const dz = newZoom / zoomRef.current
+      setZoom(newZoom)
+      setPan({ x: cx - (cx - panRef.current.x) * dz, y: cy - (cy - panRef.current.y) * dz })
+    }
+    containerEl.addEventListener('wheel', onWheel, { passive: false })
+    return () => containerEl.removeEventListener('wheel', onWheel)
+  }, [containerEl])
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (e.button !== 0) return
+    isDragging.current = true
+    dragStart.current = { x: e.clientX, y: e.clientY, px: panRef.current.x, py: panRef.current.y }
+    setDragging(true)
+  }
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!isDragging.current) return
+    setPan({ x: dragStart.current.px + e.clientX - dragStart.current.x, y: dragStart.current.py + e.clientY - dragStart.current.y })
+  }
+  const handleMouseUp = () => { isDragging.current = false; setDragging(false) }
+
   // Conditional renders AFTER all hooks
   if (error && !sitePlan) {
     return (
@@ -441,11 +488,43 @@ export default function SiteCanvas({ sitePlan, isLoading, error, onRemove, siteN
             </svg>
             10 × 10 ft / cell
           </span>
+
+          {/* Zoom controls */}
+          <span className="flex items-center gap-0.5 border-l border-gray-700/60 pl-3">
+            <button
+              onClick={() => { const z = Math.max(0.15, zoom - 0.25); setZoom(z) }}
+              className="w-5 h-5 flex items-center justify-center rounded text-gray-400 hover:bg-gray-700 hover:text-gray-200 transition-colors text-sm leading-none"
+            >−</button>
+            <span className="w-10 text-center tabular-nums">{Math.round(zoom * 100)}%</span>
+            <button
+              onClick={() => { const z = Math.min(5, zoom + 0.25); setZoom(z) }}
+              className="w-5 h-5 flex items-center justify-center rounded text-gray-400 hover:bg-gray-700 hover:text-gray-200 transition-colors text-sm leading-none"
+            >+</button>
+            <button
+              onClick={resetView}
+              title="Reset view"
+              className="w-5 h-5 flex items-center justify-center rounded text-gray-400 hover:bg-gray-700 hover:text-gray-200 transition-colors ml-0.5"
+            >
+              <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round">
+                <path d="M9.5 5.5A4 4 0 1 1 7 2" />
+                <path d="M7 1v2h2" />
+              </svg>
+            </button>
+          </span>
         </div>
       </div>
 
-      {/* Scrollable canvas area */}
-      <div className="flex-1 overflow-auto p-6 bg-gray-950">
+      {/* Pan/zoom canvas area */}
+      <div
+        ref={containerRef}
+        className="flex-1 overflow-hidden bg-gray-950 relative select-none"
+        style={{ cursor: dragging ? 'grabbing' : 'grab' }}
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseUp}
+      >
+        <div style={{ position: 'absolute', top: 0, left: 0, transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: '0 0' }}>
         {/* Site bounding box */}
         <div
           className="relative bg-slate-900 border border-slate-700 rounded shadow-xl shadow-black/40"
@@ -593,7 +672,8 @@ export default function SiteCanvas({ sitePlan, isLoading, error, onRemove, siteN
             <span className="text-[10px] text-gray-600 -rotate-90 whitespace-nowrap">{metrics.siteHeightFt} ft</span>
           </div>
         </div>
-      </div>
+        </div>{/* end transform wrapper */}
+      </div>{/* end pan/zoom container */}
 
       {/* Warnings */}
       {sitePlan.warnings && sitePlan.warnings.length > 0 && (
