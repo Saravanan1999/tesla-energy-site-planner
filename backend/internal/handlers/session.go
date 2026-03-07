@@ -17,6 +17,20 @@ func NewSessionHandler(sessionSvc *services.SessionService, sitePlanSvc *service
 	return &SessionHandler{sessionSvc: sessionSvc, sitePlanSvc: sitePlanSvc}
 }
 
+func (h *SessionHandler) ListSessions(w http.ResponseWriter, r *http.Request) {
+	sessions, apiErr := h.sessionSvc.List(r.Context())
+	if apiErr != nil {
+		writeSessionSitePlanError(w, http.StatusInternalServerError, apiErr)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(models.SessionListResponse{
+		Success: true,
+		Data:    &models.SessionListData{Sessions: sessions},
+	})
+}
+
 func (h *SessionHandler) CreateSession(w http.ResponseWriter, r *http.Request) {
 	var req models.CreateSessionRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {

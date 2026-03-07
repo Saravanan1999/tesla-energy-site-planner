@@ -38,3 +38,13 @@ type SessionSitePlanResponse struct {
 	Data    *SessionSitePlanData `json:"data,omitempty"`
 	Error   *APIError            `json:"error,omitempty"`
 }
+
+type SessionListData struct {
+	Sessions []SessionData `json:"sessions"`
+}
+
+type SessionListResponse struct {
+	Success bool             `json:"success"`
+	Data    *SessionListData `json:"data,omitempty"`
+	Error   *APIError        `json:"error,omitempty"`
+}

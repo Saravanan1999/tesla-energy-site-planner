@@ -129,6 +129,38 @@ func (s *SessionService) update(ctx context.Context, sessionID, name, devicesJSO
 	return &models.SessionData{SessionID: sessionID, Name: name, SavedAt: savedAt}, nil
 }
 
+func (s *SessionService) List(ctx context.Context) ([]models.SessionData, *models.APIError) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT session_id, name, saved_at FROM sessions ORDER BY saved_at DESC`,
+	)
+	if err != nil {
+		return nil, &models.APIError{Code: models.ErrorInternal, Message: "Failed to list sessions."}
+	}
+	defer rows.Close()
+
+	var sessions []models.SessionData
+	for rows.Next() {
+		var savedAtStr string
+		var row models.SessionData
+		if err := rows.Scan(&row.SessionID, &row.Name, &savedAtStr); err != nil {
+			return nil, &models.APIError{Code: models.ErrorInternal, Message: "Failed to read sessions."}
+		}
+		row.SavedAt, err = time.Parse(time.RFC3339, savedAtStr)
+		if err != nil {
+			return nil, &models.APIError{Code: models.ErrorInternal, Message: "Failed to parse session timestamp."}
+		}
+		sessions = append(sessions, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, &models.APIError{Code: models.ErrorInternal, Message: "Failed to iterate sessions."}
+	}
+
+	if sessions == nil {
+		sessions = []models.SessionData{}
+	}
+	return sessions, nil
+}
+
 func (s *SessionService) GetByID(ctx context.Context, sessionID string) (*SessionRecord, *models.APIError) {
 	var name, devicesJSON, savedAtStr string
 	err := s.db.QueryRowContext(ctx,
