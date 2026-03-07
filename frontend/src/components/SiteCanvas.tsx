@@ -492,31 +492,6 @@ export default function SiteCanvas({ sitePlan, isLoading, error, onRemove, siteN
       ctx.fillText(`BATTERY ROW ${idx + 1}`, pm + 4, yFt * S + 3)
     })
 
-    // ── Side clearance gaps ───────────────────────────────────────────────
-    const rowMap = new Map<string, typeof batteryItems>()
-    for (const item of [...batteryItems, ...transformerItems]) {
-      const key = `${item.zone}-${item.yFt}`
-      if (!rowMap.has(key)) rowMap.set(key, [])
-      rowMap.get(key)!.push(item)
-    }
-    for (const items of rowMap.values()) {
-      if (items.length < 2) continue
-      const sorted = [...items].sort((a, b) => a.xFt - b.xFt)
-      for (let i = 0; i < sorted.length - 1; i++) {
-        const left = sorted[i]
-        const gx = (left.xFt + left.widthFt) * S, gy = left.yFt * S
-        const gw = sa.sideClearanceFt * S, gh = left.heightFt * S
-        ctx.strokeStyle = 'rgba(255,255,255,0.12)'; ctx.lineWidth = 1; ctx.setLineDash([4, 4])
-        ctx.beginPath(); ctx.moveTo(gx, gy + 3); ctx.lineTo(gx, gy + gh - 3); ctx.stroke()
-        ctx.beginPath(); ctx.moveTo(gx + gw, gy + 3); ctx.lineTo(gx + gw, gy + gh - 3); ctx.stroke()
-        ctx.setLineDash([])
-        ctx.save(); ctx.translate(gx + gw / 2, gy + gh / 2); ctx.rotate(-Math.PI / 2)
-        ctx.fillStyle = 'rgba(100,116,139,0.65)'; ctx.font = '7px system-ui,sans-serif'
-        ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
-        ctx.fillText(`${sa.sideClearanceFt} ft`, 0, 0); ctx.restore()
-      }
-    }
-
     // ── Layout items ──────────────────────────────────────────────────────
     const labelCounters: Record<string, number> = {}
     for (const item of displayLayout) {
@@ -919,7 +894,7 @@ export default function SiteCanvas({ sitePlan, isLoading, error, onRemove, siteN
                 gaps.push(
                   <div
                     key={`gap-${left.id}`}
-                    className="absolute z-10 cursor-default hover:bg-white/8 flex items-center justify-center overflow-hidden"
+                    className="absolute z-10 cursor-default hover:bg-white/8 flex items-center justify-center"
                     style={{ left: gapX, top: gapY, width: gapW, height: gapH }}
                     onMouseEnter={e => { const r = e.currentTarget.getBoundingClientRect(); setGapTooltip({ x: r.left + r.width / 2, y: r.top }) }}
                     onMouseLeave={() => setGapTooltip(null)}
@@ -927,9 +902,9 @@ export default function SiteCanvas({ sitePlan, isLoading, error, onRemove, siteN
                     <div className="absolute inset-y-1 left-0 border-l border-dashed border-white/20" />
                     <div className="absolute inset-y-1 right-0 border-r border-dashed border-white/20" />
                     <span
-                      className="text-[7px] font-medium text-gray-600 whitespace-nowrap pointer-events-none select-none"
-                      style={{ transform: 'rotate(-90deg)' }}
-                    >{safetyAssumptions.sideClearanceFt} ft</span>
+                      className="font-medium text-gray-500 whitespace-nowrap pointer-events-none select-none"
+                      style={{ fontSize: 5, zIndex: 20, position: 'relative', letterSpacing: '0.08em' }}
+                    >|&nbsp;&nbsp;{safetyAssumptions.sideClearanceFt}ft&nbsp;&nbsp;|</span>
                   </div>
                 )
               }
