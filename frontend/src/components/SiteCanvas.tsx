@@ -46,7 +46,7 @@ function TransformerIcon() {
   )
 }
 
-function LayoutBlock({ item, onRemove, isExiting, isNew, flipFrom }: { item: LayoutItem; onRemove?: (deviceId: number) => void; isExiting?: boolean; isNew?: boolean; flipFrom?: { x: number; y: number } }) {
+function LayoutBlock({ item, onRemove, isExiting, isNew, growDelay, slideDelay, flipFrom }: { item: LayoutItem; onRemove?: (deviceId: number) => void; isExiting?: boolean; isNew?: boolean; growDelay?: number; slideDelay?: number; flipFrom?: { x: number; y: number; delay: number } }) {
   const isBattery = item.zone === 'battery'
   const segments = Math.max(1, Math.round(item.widthFt / 10))
   const w = item.widthFt * SCALE
@@ -85,20 +85,28 @@ function LayoutBlock({ item, onRemove, isExiting, isNew, flipFrom }: { item: Lay
 
     const dx = startX - newX
     const dy = startY - newY
+    const delay = flipFrom?.delay ?? slideDelay ?? 0
+
+    // Apply the initial offset immediately so the item visually stays put
+    // while we wait for its turn in the stagger sequence.
     el.style.transition = 'none'
     el.style.transform = `translate(${dx}px, ${dy}px)`
 
+    let delayTimer: ReturnType<typeof setTimeout>
     let raf: number
-    let timer: ReturnType<typeof setTimeout>
-    raf = requestAnimationFrame(() => {
-      el.getBoundingClientRect() // force reflow
-      el.style.transition = 'transform 0.5s cubic-bezier(0.25, 0.8, 0.25, 1)'
-      el.style.transform = ''
-      timer = setTimeout(() => { if (el) el.style.transition = '' }, 520)
-    })
+    let cleanTimer: ReturnType<typeof setTimeout>
+    delayTimer = setTimeout(() => {
+      raf = requestAnimationFrame(() => {
+        el.getBoundingClientRect() // force reflow
+        el.style.transition = 'transform 0.5s cubic-bezier(0.25, 0.8, 0.25, 1)'
+        el.style.transform = ''
+        cleanTimer = setTimeout(() => { if (el) el.style.transition = '' }, 520)
+      })
+    }, delay)
     return () => {
+      clearTimeout(delayTimer)
       cancelAnimationFrame(raf)
-      clearTimeout(timer)
+      clearTimeout(cleanTimer)
       if (el) { el.style.transition = ''; el.style.transform = '' }
     }
   }, [item.xFt, item.yFt]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -112,7 +120,7 @@ function LayoutBlock({ item, onRemove, isExiting, isNew, flipFrom }: { item: Lay
           ? (isBattery ? 'animate-grow-battery' : 'animate-grow-transformer')
           : ''
       } ${isExiting ? 'pointer-events-none' : ''}`}
-      style={{ left: item.xFt * SCALE, top: item.yFt * SCALE, width: w, height: h }}
+      style={{ left: item.xFt * SCALE, top: item.yFt * SCALE, width: w, height: h, animationDelay: isNew && growDelay ? `${growDelay}ms` : undefined }}
       title={`${item.label} — ${item.widthFt}×${item.heightFt}ft${item.energyMWh ? ` · ${item.energyMWh} MWh` : ''}`}
     >
       {/* Body */}
@@ -214,7 +222,9 @@ export default function SiteCanvas({ sitePlan, isLoading, error, onRemove, siteN
   const prevLayoutRef = useRef<LayoutItem[]>([])
   const animTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const prevCanvasRef = useRef({ w: canvasW, h: canvasH })
-  const flipMapRef = useRef<Map<string, { x: number; y: number }>>(new Map())
+  const flipMapRef = useRef<Map<string, { x: number; y: number; delay: number }>>(new Map())
+  const growDelayMapRef = useRef<Map<string, number>>(new Map())
+  const slideDelayMapRef = useRef<Map<string, number>>(new Map())
 
   useLayoutEffect(() => {
     if (!sitePlan) return
@@ -248,15 +258,24 @@ export default function SiteCanvas({ sitePlan, isLoading, error, onRemove, siteN
       }
       for (const arr of newByDevice.values()) arr.sort(sortFn)
 
-      const newFlipMap = new Map<string, { x: number; y: number }>()
+      const newFlipMap = new Map<string, { x: number; y: number; delay: number }>()
       for (const [deviceId, newItems] of newByDevice) {
         const oldItems = oldByDevice.get(deviceId) ?? []
         for (let i = 0; i < newItems.length && i < oldItems.length; i++) {
           const ox = oldItems[i].xFt * SCALE, oy = oldItems[i].yFt * SCALE
           const nx = newItems[i].xFt * SCALE, ny = newItems[i].yFt * SCALE
-          if (ox !== nx || oy !== ny) newFlipMap.set(newItems[i].id, { x: ox, y: oy })
+          if (ox !== nx || oy !== ny) newFlipMap.set(newItems[i].id, { x: ox, y: oy, delay: 0 })
         }
       }
+      // Stagger: sort moving items by new position (top→bottom, left→right) and
+      // assign an increasing delay so they slide in one by one.
+      const staggerOrder = [...newFlipMap.keys()]
+        .map(id => layout.find(i => i.id === id)!)
+        .sort((a, b) => a.yFt !== b.yFt ? a.yFt - b.yFt : a.xFt - b.xFt)
+      staggerOrder.forEach((item, idx) => {
+        const entry = newFlipMap.get(item.id)!
+        newFlipMap.set(item.id, { ...entry, delay: idx * 70 })
+      })
       flipMapRef.current = newFlipMap
 
       setDisplayLayout(prevLayout)
@@ -278,11 +297,32 @@ export default function SiteCanvas({ sitePlan, isLoading, error, onRemove, siteN
     }
 
     if (addedItems.length > 0) {
-      // Addition: only the genuinely new items should grow in.
-      // Schedule clearing animatingIds after the animation completes.
+      // Detect existing items that shifted position to make room for the new battery.
+      const movedItems = layout.filter(i => prevIds.has(i.id)).filter(i => {
+        const prev = prevLayout.find(p => p.id === i.id)
+        return prev && (prev.xFt !== i.xFt || prev.yFt !== i.yFt)
+      })
+      const sortFn = (a: LayoutItem, b: LayoutItem) => a.yFt !== b.yFt ? a.yFt - b.yFt : a.xFt - b.xFt
+      const sortedMoved = [...movedItems].sort(sortFn)
+      const newSlideDelayMap = new Map<string, number>()
+      sortedMoved.forEach((item, idx) => newSlideDelayMap.set(item.id, idx * 70))
+      slideDelayMapRef.current = newSlideDelayMap
+
+      // New items grow in after the moved items have started sliding.
+      const moveOffset = sortedMoved.length * 70
+      const sortedNew = [...addedItems].sort(sortFn)
+      const newGrowDelayMap = new Map<string, number>()
+      sortedNew.forEach((item, idx) => newGrowDelayMap.set(item.id, moveOffset + idx * 70))
+      growDelayMapRef.current = newGrowDelayMap
+
       if (animTimerRef.current) clearTimeout(animTimerRef.current)
       setAnimatingIds(new Set(addedItems.map(i => i.id)))
-      animTimerRef.current = setTimeout(() => setAnimatingIds(new Set()), 900)
+      const totalDuration = moveOffset + 900 + (sortedNew.length - 1) * 70
+      animTimerRef.current = setTimeout(() => {
+        setAnimatingIds(new Set())
+        growDelayMapRef.current = new Map()
+        slideDelayMapRef.current = new Map()
+      }, totalDuration)
       setDisplayLayout(layout)
       setExitingIds(new Set())
       prevLayoutRef.current = layout
@@ -538,6 +578,8 @@ export default function SiteCanvas({ sitePlan, isLoading, error, onRemove, siteN
               item={item}
               isExiting={exitingIds.has(item.id)}
               isNew={animatingIds.has(item.id)}
+              growDelay={growDelayMapRef.current.get(item.id)}
+              slideDelay={slideDelayMapRef.current.get(item.id)}
               flipFrom={exitingIds.has(item.id) ? undefined : flipMapRef.current.get(item.id)}
               onRemove={exitingIds.has(item.id) ? undefined : onRemove}
             />
