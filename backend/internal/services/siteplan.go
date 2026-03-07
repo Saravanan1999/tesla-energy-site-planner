@@ -10,12 +10,11 @@ import (
 )
 
 const (
-	perimeterMarginFt      = 10
-	sideClearanceFt        = 2
-	rowAisleFt             = 5
-	transformerBufferFt    = 10
-	maxSiteWidthFt         = 100
-	safetyVersion          = "1.0"
+	perimeterMarginFt       = 10
+	sideClearanceFt         = 2
+	rowAisleFt              = 5
+	transformerBufferFt     = 10
+	safetyVersion           = "1.0"
 	batteriesPerTransformer = 2
 
 	// Default transformer physical specs (derived, not user-configured)
@@ -109,15 +108,16 @@ func (s *SitePlanService) Generate(ctx context.Context, req models.GenerateSiteP
 		equipmentFootprint += transformerWidthFt * transformerHeightFt
 	}
 
-	usableWidthFt := maxSiteWidthFt - 2*perimeterMarginFt
+	// Step 3: Find the usable width that minimises total site area
+	usableWidthFt := findOptimalUsableWidth(batteries, transformers)
 
-	// Step 3: Pack battery rows
+	// Step 4: Pack battery rows
 	batteryLayout, batteryEndY, apiErr := packRows(batteries, models.ZoneBattery, perimeterMarginFt, perimeterMarginFt, usableWidthFt, "battery")
 	if apiErr != nil {
 		return nil, apiErr
 	}
 
-	// Step 4 & 5: Pack transformer rows after buffer
+	// Step 5: Pack transformer rows after buffer
 	transformerStartY := batteryEndY + transformerBufferFt
 	transformerLayout, transformerEndY, apiErr := packRows(transformers, models.ZoneTransformer, perimeterMarginFt, transformerStartY, usableWidthFt, "transformer")
 	if apiErr != nil {
@@ -138,13 +138,6 @@ func (s *SitePlanService) Generate(ctx context.Context, req models.GenerateSiteP
 	siteWidthFt := maxOccupiedX + perimeterMarginFt
 	siteHeightFt := maxOccupiedY + perimeterMarginFt
 
-	if siteWidthFt > maxSiteWidthFt {
-		return nil, &models.APIError{
-			Code:    models.ErrorLayoutNotFeasible,
-			Message: fmt.Sprintf("configuration cannot be arranged safely within the %d ft width limit", maxSiteWidthFt),
-		}
-	}
-
 	return &models.SitePlanData{
 		RequestedDevices: req.Devices,
 		Metrics: models.SiteMetrics{
@@ -164,10 +157,116 @@ func (s *SitePlanService) Generate(ctx context.Context, req models.GenerateSiteP
 			SideClearanceFt:     sideClearanceFt,
 			RowAisleFt:          rowAisleFt,
 			TransformerBufferFt: transformerBufferFt,
-			MaxSiteWidthFt:      maxSiteWidthFt,
 			Version:             safetyVersion,
 		},
 	}, nil
+}
+
+// findOptimalUsableWidth searches all integer widths from the minimum that fits
+// any single device up to the width that fits all devices in one row, and returns
+// the width that minimises total site area = (W + 2×margin) × (H + margin).
+func findOptimalUsableWidth(batteries []deviceSpec, transformers []deviceSpec) int {
+	// Minimum: must fit the widest single device
+	minW := 0
+	for _, d := range batteries {
+		if d.widthFt > minW {
+			minW = d.widthFt
+		}
+	}
+	for _, d := range transformers {
+		if d.widthFt > minW {
+			minW = d.widthFt
+		}
+	}
+	if minW == 0 {
+		return 2 * perimeterMarginFt
+	}
+
+	// Maximum: all devices in one row (no benefit going wider)
+	maxW := 0
+	for _, d := range batteries {
+		maxW += d.widthFt + sideClearanceFt
+	}
+	for _, d := range transformers {
+		maxW += d.widthFt + sideClearanceFt
+	}
+	if maxW < minW {
+		maxW = minW
+	}
+
+	bestW := minW
+	bestArea := 1 << 62
+
+	for w := minW; w <= maxW; w++ {
+		battEndY, ok := packHeightOnly(batteries, perimeterMarginFt, perimeterMarginFt, w)
+		if !ok {
+			continue
+		}
+		transEndY, ok := packHeightOnly(transformers, perimeterMarginFt, battEndY+transformerBufferFt, w)
+		if !ok {
+			continue
+		}
+		siteW := w + 2*perimeterMarginFt
+		siteH := transEndY + perimeterMarginFt
+		if area := siteW * siteH; area < bestArea {
+			bestArea = area
+			bestW = w
+		}
+	}
+
+	return bestW
+}
+
+// packHeightOnly simulates FFD row packing and returns (endY, fits).
+// It mirrors packRows exactly but skips building LayoutItem values.
+func packHeightOnly(devices []deviceSpec, startX, startY, usableWidthFt int) (int, bool) {
+	if len(devices) == 0 {
+		return startY, true
+	}
+
+	sorted := make([]deviceSpec, len(devices))
+	copy(sorted, devices)
+	sort.Slice(sorted, func(i, j int) bool {
+		return sorted[i].widthFt > sorted[j].widthFt
+	})
+
+	if sorted[0].widthFt > usableWidthFt {
+		return 0, false
+	}
+
+	type row struct{ y, maxH, nextX int }
+	var rows []row
+	limit := startX + usableWidthFt
+
+	for _, d := range sorted {
+		placed := false
+		for i := range rows {
+			if rows[i].nextX+d.widthFt <= limit {
+				rows[i].nextX += d.widthFt + sideClearanceFt
+				if d.heightFt > rows[i].maxH {
+					rows[i].maxH = d.heightFt
+				}
+				placed = true
+				break
+			}
+		}
+		if !placed {
+			y := startY
+			if len(rows) > 0 {
+				last := rows[len(rows)-1]
+				y = last.y + last.maxH + rowAisleFt
+			}
+			rows = append(rows, row{y: y, maxH: d.heightFt, nextX: startX + d.widthFt + sideClearanceFt})
+		}
+	}
+
+	endY := startY
+	for _, r := range rows {
+		if b := r.y + r.maxH; b > endY {
+			endY = b
+		}
+	}
+	return endY, true
 }
 
 // packRows places devices into rows using First Fit Decreasing (FFD):

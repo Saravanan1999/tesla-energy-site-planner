@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from 'react'
+import React, { useLayoutEffect, useRef, useState } from 'react'
 import type { SitePlanData, LayoutItem } from '../types/api'
 
 interface Props {
@@ -157,6 +157,7 @@ export default function SiteCanvas({ sitePlan, isLoading, error, onRemove, siteN
   const [exitingIds, setExitingIds] = useState<Set<string>>(new Set())
   const [minCanvasSize, setMinCanvasSize] = useState<{ w: number; h: number } | null>(null)
   const [perimeterTooltip, setPerimeterTooltip] = useState<{ x: number; y: number } | null>(null)
+  const [gapTooltip, setGapTooltip] = useState<{ x: number; y: number } | null>(null)
   const prevLayoutRef = useRef<LayoutItem[]>([])
   const prevCanvasRef = useRef({ w: canvasW, h: canvasH })
 
@@ -389,6 +390,53 @@ export default function SiteCanvas({ sitePlan, isLoading, error, onRemove, siteN
               </div>
             )
           })()}
+
+          {/* Side clearance gap indicators */}
+          {(() => {
+            const rowMap = new Map<string, LayoutItem[]>()
+            for (const item of displayLayout) {
+              if (exitingIds.has(item.id)) continue
+              const key = `${item.zone}-${item.yFt}`
+              if (!rowMap.has(key)) rowMap.set(key, [])
+              rowMap.get(key)!.push(item)
+            }
+            const gaps: React.ReactNode[] = []
+            for (const items of rowMap.values()) {
+              if (items.length < 2) continue
+              const sorted = [...items].sort((a, b) => a.xFt - b.xFt)
+              for (let i = 0; i < sorted.length - 1; i++) {
+                const left = sorted[i]
+                const gapX = (left.xFt + left.widthFt) * SCALE
+                const gapY = left.yFt * SCALE
+                const gapW = safetyAssumptions.sideClearanceFt * SCALE
+                const gapH = left.heightFt * SCALE
+                gaps.push(
+                  <div
+                    key={`gap-${left.id}`}
+                    className="absolute z-10 cursor-default hover:bg-white/8"
+                    style={{ left: gapX, top: gapY, width: gapW, height: gapH }}
+                    onMouseEnter={e => setGapTooltip({ x: e.clientX, y: e.clientY })}
+                    onMouseMove={e => setGapTooltip({ x: e.clientX, y: e.clientY })}
+                    onMouseLeave={() => setGapTooltip(null)}
+                  >
+                    <div className="absolute inset-y-1 left-0 border-l border-dashed border-white/20" />
+                    <div className="absolute inset-y-1 right-0 border-r border-dashed border-white/20" />
+                  </div>
+                )
+              }
+            }
+            return gaps
+          })()}
+
+          {/* Side clearance tooltip */}
+          {gapTooltip && (
+            <div
+              className="fixed z-50 pointer-events-none px-2.5 py-1.5 rounded-lg bg-gray-800 border border-gray-600 shadow-xl text-xs text-gray-200 whitespace-nowrap"
+              style={{ left: gapTooltip.x + 14, top: gapTooltip.y - 10 }}
+            >
+              {safetyAssumptions.sideClearanceFt} ft side clearance — maintenance access between devices
+            </div>
+          )}
 
           {/* Layout items — rendered from frozen displayLayout during exit animation */}
           {displayLayout.map(item => (

@@ -23,7 +23,6 @@ type SafetyAssumptions struct {
 	SideClearanceFt     int    `json:"sideClearanceFt"`
 	RowAisleFt          int    `json:"rowAisleFt"`
 	TransformerBufferFt int    `json:"transformerBufferFt"`
-	MaxSiteWidthFt      int    `json:"maxSiteWidthFt"`
 	Version             string `json:"version,omitempty"`
 }
 
