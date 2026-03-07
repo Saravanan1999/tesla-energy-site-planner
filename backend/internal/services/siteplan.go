@@ -14,7 +14,7 @@ const (
 	sideClearanceFt        = 2
 	rowAisleFt             = 5
 	transformerBufferFt    = 10
-	maxSiteWidthFt         = 120
+	maxSiteWidthFt         = 100
 	safetyVersion          = "1.0"
 	batteriesPerTransformer = 2
 

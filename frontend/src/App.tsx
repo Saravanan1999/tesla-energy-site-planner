@@ -175,7 +175,7 @@ export default function App() {
             onSiteNameChange={name => { setSiteName(name); setSaveError(null) }}
             nameError={saveError}
           />
-          {sitePlan && <MetricsPanel metrics={sitePlan.metrics} />}
+          {sitePlan && <MetricsPanel metrics={sitePlan.metrics} safetyAssumptions={sitePlan.safetyAssumptions} />}
         </main>
       </div>
 

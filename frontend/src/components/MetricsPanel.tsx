@@ -1,7 +1,8 @@
-import type { SiteMetrics } from '../types/api'
+import type { SafetyAssumptions, SiteMetrics } from '../types/api'
 
 interface Props {
   metrics: SiteMetrics
+  safetyAssumptions: SafetyAssumptions
 }
 
 interface Stat {
@@ -12,7 +13,7 @@ interface Stat {
   accent?: string
 }
 
-export default function MetricsPanel({ metrics }: Props) {
+export default function MetricsPanel({ metrics, safetyAssumptions }: Props) {
   const stats: Stat[] = [
     {
       label: 'Total Cost',
@@ -34,6 +35,7 @@ export default function MetricsPanel({ metrics }: Props) {
       label: 'Site Dimensions',
       value: `${metrics.siteWidthFt} × ${metrics.siteHeightFt} ft`,
       sub: `${metrics.boundingAreaSqFt.toLocaleString()} sq ft`,
+      subTooltip: `Includes ${safetyAssumptions.perimeterMarginFt} ft safety perimeter on all sides`,
     },
     {
       label: 'Equipment Footprint',

@@ -89,7 +89,7 @@ function LayoutBlock({ item, onRemove, isExiting }: { item: LayoutItem; onRemove
             )}
             {/* Label */}
             {w > 36 && (
-              <span className="absolute bottom-0.5 left-1 z-10 text-[9px] font-semibold leading-tight text-blue-200">
+              <span className="absolute bottom-0.5 left-1 right-0.5 z-10 text-[8px] font-semibold leading-tight text-blue-200 truncate">
                 {item.label}
               </span>
             )}
@@ -100,7 +100,7 @@ function LayoutBlock({ item, onRemove, isExiting }: { item: LayoutItem; onRemove
             <TransformerIcon />
             {/* Label */}
             {w > 36 && (
-              <span className="absolute bottom-0.5 left-1 z-10 text-[9px] font-semibold leading-tight text-amber-300">
+              <span className="absolute bottom-0.5 left-1 right-0.5 z-10 text-[7px] font-semibold leading-tight text-amber-300">
                 {item.label}
               </span>
             )}
@@ -156,6 +156,7 @@ export default function SiteCanvas({ sitePlan, isLoading, error, onRemove, siteN
   const [displayLayout, setDisplayLayout] = useState<LayoutItem[]>([])
   const [exitingIds, setExitingIds] = useState<Set<string>>(new Set())
   const [minCanvasSize, setMinCanvasSize] = useState<{ w: number; h: number } | null>(null)
+  const [perimeterTooltip, setPerimeterTooltip] = useState<{ x: number; y: number } | null>(null)
   const prevLayoutRef = useRef<LayoutItem[]>([])
   const prevCanvasRef = useRef({ w: canvasW, h: canvasH })
 
@@ -329,6 +330,33 @@ export default function SiteCanvas({ sitePlan, isLoading, error, onRemove, siteN
               transition: 'width 0.28s ease-out, height 0.28s ease-out',
             }}
           />
+
+          {/* Perimeter hover strips */}
+          {(() => {
+            const m = safetyAssumptions.perimeterMarginFt * SCALE
+            const onEnter = (e: React.MouseEvent) => setPerimeterTooltip({ x: e.clientX, y: e.clientY })
+            const onMove  = (e: React.MouseEvent) => setPerimeterTooltip({ x: e.clientX, y: e.clientY })
+            const onLeave = () => setPerimeterTooltip(null)
+            const cls = 'absolute z-20 cursor-default hover:bg-blue-400/5'
+            return (
+              <>
+                <div className={cls} style={{ top: 0, left: 0, right: 0, height: m }} onMouseEnter={onEnter} onMouseMove={onMove} onMouseLeave={onLeave} />
+                <div className={cls} style={{ bottom: 0, left: 0, right: 0, height: m }} onMouseEnter={onEnter} onMouseMove={onMove} onMouseLeave={onLeave} />
+                <div className={cls} style={{ top: m, bottom: m, left: 0, width: m }} onMouseEnter={onEnter} onMouseMove={onMove} onMouseLeave={onLeave} />
+                <div className={cls} style={{ top: m, bottom: m, right: 0, width: m }} onMouseEnter={onEnter} onMouseMove={onMove} onMouseLeave={onLeave} />
+              </>
+            )
+          })()}
+
+          {/* Perimeter tooltip */}
+          {perimeterTooltip && (
+            <div
+              className="fixed z-50 pointer-events-none px-2.5 py-1.5 rounded-lg bg-gray-800 border border-gray-600 shadow-xl text-xs text-gray-200 whitespace-nowrap"
+              style={{ left: perimeterTooltip.x + 14, top: perimeterTooltip.y - 10 }}
+            >
+              Safety perimeter — {safetyAssumptions.perimeterMarginFt} ft clearance from site boundary
+            </div>
+          )}
 
           {/* Service aisle between battery zone and transformer zone */}
           {(() => {
