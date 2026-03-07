@@ -163,12 +163,31 @@ export default function SiteCanvas({ sitePlan, isLoading, error, onRemove, siteN
     if (!sitePlan) return
     const prevLayout = prevLayoutRef.current
     const currentIds = new Set(layout.map(i => i.id))
-    const removedIds = prevLayout
-      .filter(item => !currentIds.has(item.id))
-      .map(item => item.id)
+    const prevIds = new Set(prevLayout.map(i => i.id))
+    const removedIds = prevLayout.filter(i => !currentIds.has(i.id)).map(i => i.id)
+    const addedItems = layout.filter(i => !prevIds.has(i.id))
 
-    if (removedIds.length === 0) {
-      // Nothing removed — show new layout immediately (handles additions too)
+    if (removedIds.length > 0) {
+      // Removal: freeze ALL items at old positions so nothing moves until the
+      // shrink animation completes, then switch to the new layout.
+      setDisplayLayout(prevLayout)
+      setExitingIds(new Set(removedIds))
+      setMinCanvasSize({ ...prevCanvasRef.current })
+
+      const t = setTimeout(() => {
+        setDisplayLayout(layout)
+        setExitingIds(new Set())
+        setMinCanvasSize(null)
+        prevLayoutRef.current = layout
+        prevCanvasRef.current = { w: canvasW, h: canvasH }
+      }, 300)
+      return () => clearTimeout(t)
+    }
+
+    if (addedItems.length > 0) {
+      // Addition: show all existing items at their final positions immediately so
+      // nothing jumps after the animation. Only the new items grow in (new React
+      // keys trigger the CSS grow animation automatically).
       setDisplayLayout(layout)
       setExitingIds(new Set())
       prevLayoutRef.current = layout
@@ -176,22 +195,11 @@ export default function SiteCanvas({ sitePlan, isLoading, error, onRemove, siteN
       return
     }
 
-    // Freeze ALL items at their old positions while removed items animate out.
-    // This prevents remaining items from jumping to new positions prematurely.
-    setDisplayLayout(prevLayout)
-    setExitingIds(new Set(removedIds))
-    setMinCanvasSize({ ...prevCanvasRef.current })
-
-    const t = setTimeout(() => {
-      // Animation done — now switch to new layout and allow canvas to resize
-      setDisplayLayout(layout)
-      setExitingIds(new Set())
-      setMinCanvasSize(null)
-      prevLayoutRef.current = layout
-      prevCanvasRef.current = { w: canvasW, h: canvasH }
-    }, 300)
-
-    return () => clearTimeout(t)
+    // No structural change — update positions immediately
+    setDisplayLayout(layout)
+    setExitingIds(new Set())
+    prevLayoutRef.current = layout
+    prevCanvasRef.current = { w: canvasW, h: canvasH }
   }, [layout, canvasW, canvasH, sitePlan])
 
   const displayedW = minCanvasSize ? Math.max(canvasW, minCanvasSize.w) : canvasW
