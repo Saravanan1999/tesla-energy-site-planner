@@ -137,13 +137,18 @@ func (h *SessionHandler) GetSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	plan, apiErr := h.sitePlanSvc.Generate(r.Context(), models.GenerateSitePlanRequest{
-		Devices:   record.Devices,
-		Objective: record.Objective,
-	})
-	if apiErr != nil {
-		writeSessionSitePlanError(w, http.StatusUnprocessableEntity, apiErr)
-		return
+	// Use the stored layout if available; otherwise regenerate (backwards-compat for old sessions)
+	plan := record.SitePlan
+	if plan == nil {
+		var apiErr *models.APIError
+		plan, apiErr = h.sitePlanSvc.Generate(r.Context(), models.GenerateSitePlanRequest{
+			Devices:   record.Devices,
+			Objective: record.Objective,
+		})
+		if apiErr != nil {
+			writeSessionSitePlanError(w, http.StatusUnprocessableEntity, apiErr)
+			return
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")

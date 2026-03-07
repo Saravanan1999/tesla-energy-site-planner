@@ -274,14 +274,7 @@ func (s *SitePlanService) computeSuggestion(ctx context.Context, configuredDevic
 				}
 				reason = fmt.Sprintf("%d×%s delivers the same %g MWh at %s less cost.", m, tgt.name, float64(q)*src.energyMWh, formatDeltaCost(-deltaCost))
 
-			case models.ObjectiveMaxDensity:
-				srcDensity := src.energyMWh / float64(src.widthFt*src.heightFt)
-				tgtDensity := tgt.energyMWh / float64(tgt.widthFt*tgt.heightFt)
-				improvement = tgtDensity - srcDensity
-				if improvement <= 0 {
-					continue
-				}
-				reason = fmt.Sprintf("%s has higher energy density (%.4f MWh/ft²) than %s (%.4f MWh/ft²).", tgt.name, tgtDensity, src.name, srcDensity)
+	
 			}
 
 			if best == nil || improvement > best.improvement {
@@ -529,6 +522,111 @@ func packRows(devices []deviceSpec, zone models.LayoutZone, startX, startY, usab
 	}
 
 	return allItems, endY, nil
+}
+
+// Optimize finds the best single-battery-type replacement plan for the given objective.
+// It generates a real layout (including transformer costs) for each candidate battery type
+// and returns the plan only if it genuinely improves on the current plan's metrics.
+// Returns nil if the current plan is already optimal.
+func (s *SitePlanService) Optimize(ctx context.Context, req models.GenerateSitePlanRequest) (*models.SitePlanData, *models.APIError) {
+	objective := req.Objective
+	if objective == "" {
+		objective = models.ObjectiveMinArea
+	}
+
+	// Generate current plan to establish baseline metrics
+	currentPlan, apiErr := s.Generate(ctx, req)
+	if apiErr != nil {
+		return nil, apiErr
+	}
+
+	targetEnergy := currentPlan.Metrics.TotalEnergyMWh
+	if targetEnergy <= 0 {
+		return nil, nil
+	}
+
+	// Fetch all battery types from catalog
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, name, width_ft, height_ft, energy_mwh, cost FROM devices WHERE category = 'battery'`,
+	)
+	if err != nil {
+		return nil, &models.APIError{Code: models.ErrorInternal, Message: "failed to fetch devices"}
+	}
+	defer rows.Close()
+
+	var catalog []deviceSpec
+	for rows.Next() {
+		var d deviceSpec
+		if err := rows.Scan(&d.id, &d.name, &d.widthFt, &d.heightFt, &d.energyMWh, &d.cost); err != nil {
+			return nil, &models.APIError{Code: models.ErrorInternal, Message: "failed to read devices"}
+		}
+		catalog = append(catalog, d)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, &models.APIError{Code: models.ErrorInternal, Message: "failed to iterate devices"}
+	}
+
+	var bestPlan *models.SitePlanData
+	var bestImprovement float64
+
+	for _, d := range catalog {
+		if d.energyMWh <= 0 {
+			continue
+		}
+
+		// Try floor and ceil quantities; pick whichever yields energy closest to target.
+		// Skip this device if neither gets within 2% of the target — total power must stay fixed.
+		qFloor := int(math.Floor(targetEnergy / d.energyMWh))
+		qCeil := qFloor + 1
+		qty := qFloor
+		if qFloor > 0 {
+			eFloor := float64(qFloor) * d.energyMWh
+			eCeil := float64(qCeil) * d.energyMWh
+			if math.Abs(eCeil-targetEnergy) < math.Abs(eFloor-targetEnergy) {
+				qty = qCeil
+			}
+		} else {
+			qty = qCeil
+		}
+		if qty <= 0 {
+			continue
+		}
+		candidateEnergy := float64(qty) * d.energyMWh
+		// Energy must not exceed target (never add power), and can decrease by at most 1%.
+		if candidateEnergy > targetEnergy*1.001 || candidateEnergy < targetEnergy*0.99 {
+			continue
+		}
+
+		plan, apiErr := s.Generate(ctx, models.GenerateSitePlanRequest{
+			Devices:   []models.ConfiguredDevice{{ID: d.id, Quantity: qty}},
+			Objective: objective,
+		})
+		if apiErr != nil {
+			continue
+		}
+
+		improvement := objectiveImprovement(objective, plan.Metrics, currentPlan.Metrics)
+		if improvement <= 0 {
+			continue
+		}
+		if bestPlan == nil || improvement > bestImprovement {
+			bestPlan = plan
+			bestImprovement = improvement
+		}
+	}
+
+	return bestPlan, nil
+}
+
+func objectiveImprovement(obj models.OptimizationObjective, candidate, baseline models.SiteMetrics) float64 {
+	switch obj {
+	case models.ObjectiveMinArea:
+		return float64(baseline.BoundingAreaSqFt - candidate.BoundingAreaSqFt)
+	case models.ObjectiveMinCost:
+		return float64(baseline.TotalCost - candidate.TotalCost)
+	default:
+		return 0
+	}
 }
 
 func (s *SitePlanService) lookupDevice(ctx context.Context, id int64) (*deviceSpec, error) {

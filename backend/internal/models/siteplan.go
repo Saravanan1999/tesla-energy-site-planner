@@ -12,9 +12,8 @@ const (
 type OptimizationObjective string
 
 const (
-	ObjectiveMinArea    OptimizationObjective = "min_area"
-	ObjectiveMinCost    OptimizationObjective = "min_cost"
-	ObjectiveMaxDensity OptimizationObjective = "max_density"
+	ObjectiveMinArea OptimizationObjective = "min_area"
+	ObjectiveMinCost OptimizationObjective = "min_cost"
 )
 
 type ConfiguredDevice struct {

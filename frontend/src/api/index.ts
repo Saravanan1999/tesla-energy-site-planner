@@ -37,8 +37,11 @@ export const fetchDevices = () =>
 export const generateSitePlan = (devices: ConfiguredDevice[], objective?: OptimizationObjective) =>
   post<SitePlanData>('/api/site-plan', { devices, objective: objective ?? 'min_area' })
 
-export const createSession = (name: string, devices: ConfiguredDevice[], objective?: OptimizationObjective) =>
-  post<SessionData>('/api/sessions', { name, devices, objective: objective ?? 'min_area' })
+export const optimizeSitePlan = (devices: ConfiguredDevice[], objective: OptimizationObjective) =>
+  post<SitePlanData>('/api/optimize', { devices, objective })
+
+export const createSession = (name: string, devices: ConfiguredDevice[], objective?: OptimizationObjective, sitePlan?: SitePlanData) =>
+  post<SessionData>('/api/sessions', { name, devices, objective: objective ?? 'min_area', sitePlan })
 
 export const listSessions = () =>
   get<{ sessions: SessionData[] }>('/api/sessions')
@@ -46,8 +49,8 @@ export const listSessions = () =>
 export const getSession = (sessionId: string) =>
   get<SessionSitePlanData>(`/api/sessions/${sessionId}`)
 
-export const updateSession = (sessionId: string, name: string, devices: ConfiguredDevice[], objective?: OptimizationObjective) =>
-  put<SessionData>(`/api/sessions/${sessionId}`, { name, devices, objective: objective ?? 'min_area' })
+export const updateSession = (sessionId: string, name: string, devices: ConfiguredDevice[], objective?: OptimizationObjective, sitePlan?: SitePlanData) =>
+  put<SessionData>(`/api/sessions/${sessionId}`, { name, devices, objective: objective ?? 'min_area', sitePlan })
 
 export const deleteSession = (sessionId: string) =>
   fetch(`/api/sessions/${sessionId}`, { method: 'DELETE' })

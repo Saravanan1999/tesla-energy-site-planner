@@ -15,17 +15,21 @@ interface Props {
   currentSiteName: string
   sessionNames: SessionData[]
   optimalLayouts: OptimalLayouts
+  onTargetMWhChange: (mwh: number) => void
 }
 
 const OBJECTIVES: { id: Exclude<OptimizationObjective, 'user_plan'>; label: string; description: string }[] = [
-  { id: 'min_area',    label: 'Min Area',            description: 'Smallest site footprint' },
-  { id: 'min_cost',    label: 'Min Cost',             description: 'Lowest total equipment cost' },
-  { id: 'max_density', label: 'Max Energy Density',   description: 'Maximum energy density (MWh/ft²)' },
+  { id: 'min_area', label: 'Min Area', description: 'Smallest site footprint at fixed total MWh' },
+  { id: 'min_cost', label: 'Min Cost', description: 'Lowest total equipment cost at fixed total MWh' },
 ]
+
+function fmtCost(c: number): string {
+  return c >= 1_000_000 ? `$${(c / 1_000_000).toFixed(1)}M` : c >= 1000 ? `$${Math.round(c / 1000)}k` : `$${c}`
+}
 
 /** Build the reason string from actual generated metrics. */
 function buildReason(
-  obj: 'min_area' | 'min_cost' | 'max_density',
+  obj: 'min_area' | 'min_cost',
   entry: OptimalEntry,
   current: SitePlanData,
 ): string {
@@ -33,15 +37,16 @@ function buildReason(
   const cm = current.metrics
   if (obj === 'min_area') {
     const saved = cm.boundingAreaSqFt - om.boundingAreaSqFt
-    return `${entry.label} fits in ${om.siteWidthFt}×${om.siteHeightFt} ft — saves ${saved.toLocaleString()} ft² of total site area.`
+    const costDelta = om.totalCost - cm.totalCost
+    const costNote = costDelta > 0
+      ? ` (costs ${fmtCost(costDelta)} more)`
+      : costDelta < 0
+        ? ` (saves ${fmtCost(-costDelta)} in cost too)`
+        : ''
+    return `${entry.label} — total site ${om.siteWidthFt}×${om.siteHeightFt} ft (${om.boundingAreaSqFt.toLocaleString()} ft²), saves ${saved.toLocaleString()} ft² vs your current ${cm.boundingAreaSqFt.toLocaleString()} ft²${costNote}.`
   }
-  if (obj === 'min_cost') {
-    const saved = cm.totalCost - om.totalCost
-    const fmt = saved >= 1_000_000 ? `$${(saved / 1_000_000).toFixed(1)}M` : `$${Math.round(saved / 1000)}k`
-    return `${entry.label} costs ${fmt} less (including ${om.requiredTransformers} transformer${om.requiredTransformers !== 1 ? 's' : ''}).`
-  }
-  const optDensity = (om.totalEnergyMWh / om.boundingAreaSqFt * 1000).toFixed(2)
-  return `${entry.label} achieves ${optDensity} MWh/1000ft² — denser layout using ${om.siteWidthFt}×${om.siteHeightFt} ft.`
+  const saved = cm.totalCost - om.totalCost
+  return `${entry.label} — total cost ${fmtCost(om.totalCost)} incl. ${om.requiredTransformers} transformer${om.requiredTransformers !== 1 ? 's' : ''}, saves ${fmtCost(saved)} vs your current ${fmtCost(cm.totalCost)}.`
 }
 
 /** Compute a suggestion from an OptimalEntry for passing to onApply. */
@@ -74,7 +79,6 @@ function computePlanBadges(current: SitePlanData, optimalLayouts: OptimalLayouts
     if (e === undefined) return { label: 'Area', text: '…', good: false, loading: true }
     if (e === null) return { label: 'Area', text: '✓ optimal', good: true, loading: false }
     const delta = e.plan.metrics.boundingAreaSqFt - cm.boundingAreaSqFt
-    // delta < 0 → optimal uses less space → current is worse
     const abs = Math.abs(delta)
     return {
       label: 'Area',
@@ -99,37 +103,35 @@ function computePlanBadges(current: SitePlanData, optimalLayouts: OptimalLayouts
     }
   }
 
-  const densityBadge = (): PlanBadge => {
-    const e = optimalLayouts.max_density
-    if (e === undefined) return { label: 'Density', text: '…', good: false, loading: true }
-    if (e === null) return { label: 'Density', text: '✓ optimal', good: true, loading: false }
-    // density = MWh / boundingAreaSqFt; less area (same energy) = denser
-    const optDensity = e.plan.metrics.totalEnergyMWh / e.plan.metrics.boundingAreaSqFt
-    const curDensity = cm.totalEnergyMWh / cm.boundingAreaSqFt
-    const delta = optDensity - curDensity  // positive = optimal is denser = current is worse
-    const abs = Math.abs(delta * 1000)
-    return {
-      label: 'Density',
-      text: delta > 0.0001 ? `−${abs.toFixed(2)} MWh/1000ft²` : delta < -0.0001 ? `+${abs.toFixed(2)} MWh/1000ft²` : '✓ optimal',
-      good: delta <= 0.0001,
-      loading: false,
-    }
-  }
-
-  return [areaBadge(), costBadge(), densityBadge()]
+  return [areaBadge(), costBadge()]
 }
 
 export default function OptimizationPanel({
   sitePlan, objective, onObjectiveChange, onApply,
   appliedSnapshots, onRevert, onSaveAs, currentSiteName, sessionNames,
-  optimalLayouts,
+  optimalLayouts, onTargetMWhChange,
 }: Props) {
   const [saveAsOpen, setSaveAsOpen] = useState(false)
   const [saveAsName, setSaveAsName] = useState('')
   const [saveAsWorking, setSaveAsWorking] = useState(false)
   const [saveAsError, setSaveAsError] = useState<string | null>(null)
+  const [editingMWh, setEditingMWh] = useState(false)
+  const [mwhInput, setMwhInput] = useState('')
 
-  const activeObjective = (objective === 'user_plan' ? 'min_area' : objective) as Exclude<OptimizationObjective, 'user_plan'>
+  const startEditingMWh = () => {
+    setMwhInput(sitePlan.metrics.totalEnergyMWh.toFixed(1))
+    setEditingMWh(true)
+  }
+
+  const commitMWh = () => {
+    setEditingMWh(false)
+    const val = parseFloat(mwhInput)
+    if (!isNaN(val) && val > 0 && Math.abs(val - sitePlan.metrics.totalEnergyMWh) > 0.05) {
+      onTargetMWhChange(val)
+    }
+  }
+
+  const activeObjective = (objective === 'user_plan' ? 'min_area' : objective) as 'min_area' | 'min_cost'
   const optEntry = optimalLayouts[activeObjective]  // undefined=loading, null=already optimal, entry=suggestion available
   const planBadges = computePlanBadges(sitePlan, optimalLayouts)
 
@@ -218,7 +220,35 @@ export default function OptimizationPanel({
 
         {/* Objective selector */}
         <div className="shrink-0">
-          <p className="text-[10px] text-gray-500 uppercase tracking-widest mb-1.5">Optimize for</p>
+          <p className="text-[10px] text-gray-500 uppercase tracking-widest mb-1.5 flex items-baseline gap-0">
+            Optimize for
+            {editingMWh ? (
+              <span className="ml-1.5 flex items-baseline gap-0.5 normal-case tracking-normal font-normal">
+                <span className="text-gray-600">· fixed</span>
+                <input
+                  autoFocus
+                  type="number"
+                  min="0.1"
+                  step="0.1"
+                  value={mwhInput}
+                  onChange={e => setMwhInput(e.target.value)}
+                  onBlur={commitMWh}
+                  onKeyDown={e => { if (e.key === 'Enter') commitMWh(); if (e.key === 'Escape') setEditingMWh(false) }}
+                  className="w-14 mx-1 bg-gray-900 text-blue-300 text-[10px] px-1.5 py-0 rounded outline-none"
+                  style={{ border: '1px solid rgba(37,99,235,0.5)' }}
+                />
+                <span className="text-gray-600">MWh</span>
+              </span>
+            ) : (
+              <button
+                onClick={startEditingMWh}
+                title="Click to change target energy"
+                className="ml-1.5 normal-case tracking-normal text-gray-600 hover:text-gray-300 font-normal transition-colors"
+              >
+                · {sitePlan.metrics.totalEnergyMWh.toFixed(1)} MWh ✎
+              </button>
+            )}
+          </p>
           <div className="flex items-center gap-1">
             {OBJECTIVES.map(o => {
               const selected = activeObjective === o.id

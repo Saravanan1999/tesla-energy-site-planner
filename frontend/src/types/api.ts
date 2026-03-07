@@ -49,7 +49,7 @@ export interface LayoutItem {
   cost: number
 }
 
-export type OptimizationObjective = 'min_area' | 'min_cost' | 'max_density' | 'user_plan'
+export type OptimizationObjective = 'min_area' | 'min_cost' | 'user_plan'
 
 export interface OptimizationSuggestion {
   fromDeviceId: number
@@ -101,4 +101,4 @@ export interface APIResponse<T> {
 }
 
 export interface OptimalEntry { label: string; plan: SitePlanData }
-export type OptimalLayouts = Partial<Record<'min_area' | 'min_cost' | 'max_density', OptimalEntry | null>>
+export type OptimalLayouts = Partial<Record<'min_area' | 'min_cost', OptimalEntry | null>>

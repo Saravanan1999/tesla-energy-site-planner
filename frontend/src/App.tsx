@@ -1,20 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { fetchDevices, generateSitePlan, getSession, createSession, updateSession, listSessions } from './api'
+import { fetchDevices, generateSitePlan, optimizeSitePlan, getSession, createSession, updateSession, listSessions } from './api'
 import type { Device, OptimalLayouts, OptimizationObjective, OptimizationSuggestion, SessionData, SitePlanData } from './types/api'
-
-// Best single-device mix for a given objective and target energy
-function computeBestMix(
-  batteries: Device[],
-  targetEnergyMWh: number,
-  objective: 'min_area' | 'min_cost' | 'max_density'
-): { id: number; quantity: number } | null {
-  if (!batteries.length || targetEnergyMWh <= 0) return null
-  const best = [...batteries].sort((a, b) => {
-    if (objective === 'min_cost') return (a.cost / a.energyMWh) - (b.cost / b.energyMWh)
-    return (b.energyMWh / (b.widthFt * b.heightFt)) - (a.energyMWh / (a.widthFt * a.heightFt))
-  })[0]
-  return { id: best.id, quantity: Math.max(1, Math.round(targetEnergyMWh / best.energyMWh)) }
-}
 
 import DeviceCatalog from './components/DeviceCatalog'
 import SiteCanvas from './components/SiteCanvas'
@@ -86,46 +72,31 @@ export default function App() {
     }
   }, [dataLoaded, animDone])
 
-  // Compute truly optimal layouts for all 3 objectives by calling the API.
-  // This gives accurate global metrics (real site area incl. aisles + transformer zone,
-  // real total cost incl. transformers) instead of estimated equipment footprint.
+  // Ask the backend for the globally optimal plan for each objective.
+  // The backend generates real layouts (with transformer costs) and only returns a
+  // suggestion if it genuinely improves on the current plan's metrics.
   useEffect(() => {
     if (!sitePlan || !devices.length) return
-    const batteries = devices.filter(d => d.category === 'battery')
-    const targetEnergy = sitePlan.metrics.totalEnergyMWh
-    if (!batteries.length || targetEnergy <= 0) return
-
-    const deviceMap = new Map(devices.map(d => [d.id, d]));
-    (['min_area', 'min_cost', 'max_density'] as const).forEach(obj => {
-      const best = computeBestMix(batteries, targetEnergy, obj)
-      if (!best) return
-
-      const alreadyOptimal =
-        sitePlan.requestedDevices.length === 1 &&
-        sitePlan.requestedDevices[0].id === best.id &&
-        sitePlan.requestedDevices[0].quantity === best.quantity
-
-      if (alreadyOptimal) {
-        setOptimalLayouts(prev => ({ ...prev, [obj]: null }))
-        return
-      }
-
-      generateSitePlan([best], obj).then(res => {
-        if (res.success && res.data) {
-          const om = res.data.metrics
-          const cm = sitePlan.metrics
-          // Only show as a suggestion if it actually improves on the objective
-          const isBetter =
-            obj === 'min_area'    ? om.boundingAreaSqFt < cm.boundingAreaSqFt :
-            obj === 'min_cost'    ? om.totalCost < cm.totalCost :
-            /* max_density */       (om.totalEnergyMWh / om.boundingAreaSqFt) > (cm.totalEnergyMWh / cm.boundingAreaSqFt)
-          if (!isBetter) { setOptimalLayouts(prev => ({ ...prev, [obj]: null })); return }
-          const d = deviceMap.get(best.id)
-          const label = d ? `${best.quantity}× ${d.name}` : `${best.quantity}×`
-          setOptimalLayouts(prev => ({ ...prev, [obj]: { label, plan: res.data! } }))
+    let cancelled = false
+    setOptimalLayouts({}) // clear stale results from any prior sitePlan
+    const deviceMap = new Map(devices.map(d => [d.id, d]))
+    const configured = sitePlan.requestedDevices.map(d => ({ id: d.id, quantity: d.quantity }));
+    (['min_area', 'min_cost'] as const).forEach(obj => {
+      optimizeSitePlan(configured, obj).then(res => {
+        if (cancelled) return
+        if (!res.success) return
+        if (!res.data) {
+          setOptimalLayouts(prev => ({ ...prev, [obj]: null }))
+          return
         }
+        const plan = res.data
+        const first = plan.requestedDevices[0]
+        const dev = first ? deviceMap.get(first.id) : undefined
+        const label = dev ? `${first.quantity}× ${dev.name}` : `${first?.quantity ?? ''}×`
+        setOptimalLayouts(prev => ({ ...prev, [obj]: { label, plan } }))
       })
     })
+    return () => { cancelled = true }
   }, [sitePlan]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const refreshSessionNames = () =>
@@ -209,8 +180,8 @@ export default function App() {
       .map(([id, quantity]) => ({ id: Number(id), quantity }))
     const saveObjective = objective === 'user_plan' ? 'min_area' : objective
     const res = currentSessionId
-      ? await updateSession(currentSessionId, siteName.trim(), configured, saveObjective)
-      : await createSession(siteName.trim(), configured, saveObjective)
+      ? await updateSession(currentSessionId, siteName.trim(), configured, saveObjective, sitePlan ?? undefined)
+      : await createSession(siteName.trim(), configured, saveObjective, sitePlan ?? undefined)
     setIsSaving(false)
     if (!res.success) {
       setSaveError(res.error?.details?.[0] ?? res.error?.message ?? 'Failed to save.')
@@ -322,12 +293,50 @@ export default function App() {
     else { setPlanError(res.error?.message ?? 'Failed to restore layout.'); setSitePlan(null) }
   }
 
+  const handleTargetMWhChange = async (targetMWh: number) => {
+    if (!sitePlan || targetMWh <= 0) return
+    const currentMWh = sitePlan.metrics.totalEnergyMWh
+    if (currentMWh <= 0) return
+
+    // Scale each device quantity proportionally to hit the new target
+    const scale = targetMWh / currentMWh
+    const next: Record<number, number> = {}
+    for (const [id, qty] of Object.entries(quantities)) {
+      next[Number(id)] = Math.max(1, Math.round((qty as number) * scale))
+    }
+
+    const configured = Object.entries(next)
+      .filter(([, q]) => q > 0)
+      .map(([id, quantity]) => ({ id: Number(id), quantity: quantity as number }))
+    if (configured.length === 0) return
+
+    setLoadingSplash(true)
+    setLoadingSplashFading(false)
+    setIsGenerating(true)
+    setPlanError(null)
+    clearTimeout(debounceRef.current)
+    manualSnapshotRef.current = null
+
+    const planObjective = objectiveRef.current === 'user_plan' ? 'min_area' : objectiveRef.current
+    const res = await generateSitePlan(configured, planObjective)
+    setIsGenerating(false)
+    if (res.success && res.data) {
+      setQuantities(next)
+      setSitePlan(res.data)
+      setAppliedSnapshots([])
+    } else {
+      setPlanError(res.error?.message ?? 'Failed to generate layout.')
+    }
+    setTimeout(() => setLoadingSplashFading(true), 600)
+    setTimeout(() => setLoadingSplash(false), 1000)
+  }
+
   const handleSaveAs = async (newName: string): Promise<boolean> => {
     const configured = Object.entries(quantities)
       .filter(([, q]) => q > 0)
       .map(([id, quantity]) => ({ id: Number(id), quantity }))
     const saveObjective = objective === 'user_plan' ? 'min_area' : objective
-    const res = await createSession(newName, configured, saveObjective)
+    const res = await createSession(newName, configured, saveObjective, sitePlan ?? undefined)
     if (res.success) {
       refreshSessionNames()
       setToastLabel(newName)
@@ -455,6 +464,7 @@ export default function App() {
               objective={objective}
               onObjectiveChange={handleObjectiveChange}
               onApply={handleApplySuggestion}
+              onTargetMWhChange={handleTargetMWhChange}
               appliedSnapshots={appliedSnapshots}
               onRevert={handleRevert}
               onSaveAs={handleSaveAs}
