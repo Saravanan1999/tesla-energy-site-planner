@@ -277,11 +277,15 @@ export default function SiteCanvas({ sitePlan, isLoading, error, onRemove, siteN
           if (ox !== nx || oy !== ny) newFlipMap.set(newItems[i].id, { x: ox, y: oy, delay: 0 })
         }
       }
-      // Stagger: sort moving items by new position (top→bottom, left→right) and
-      // assign an increasing delay so they slide in one by one.
+      // Stagger: sort by OLD position top→bottom — batteries (higher up, smaller y)
+      // move first to fill the gap, transformer follows once batteries have settled.
       const staggerOrder = [...newFlipMap.keys()]
         .map(id => layout.find(i => i.id === id)!)
-        .sort((a, b) => a.yFt !== b.yFt ? a.yFt - b.yFt : a.xFt - b.xFt)
+        .sort((a, b) => {
+          const aOld = newFlipMap.get(a.id)!
+          const bOld = newFlipMap.get(b.id)!
+          return aOld.y !== bOld.y ? aOld.y - bOld.y : aOld.x - bOld.x
+        })
       staggerOrder.forEach((item, idx) => {
         const entry = newFlipMap.get(item.id)!
         newFlipMap.set(item.id, { ...entry, delay: idx * 70 })
@@ -327,23 +331,38 @@ export default function SiteCanvas({ sitePlan, isLoading, error, onRemove, siteN
     }
 
     if (addedItems.length > 0) {
-      // Canvas is growing — snap immediately so new devices don't appear outside the boundary
-      setSuppressSizeTransition(true)
-      requestAnimationFrame(() => setSuppressSizeTransition(false))
+      const oldSize = { ...prevCanvasRef.current }
+      // If canvas is growing, snap immediately so new devices don't appear outside the boundary
+      if (canvasW > oldSize.w || canvasH > oldSize.h) {
+        setSuppressSizeTransition(true)
+        requestAnimationFrame(() => setSuppressSizeTransition(false))
+      }
+      // Hold old canvas size as minimum — canvas must not shrink while devices are still animating
+      setMinCanvasSize(oldSize)
+
       // Detect existing items that shifted position to make room for the new battery.
+      // Choreography: transformers cascade down first (bottommost transformer first so each
+      // clears space for the one above), then batteries cascade down the same way, opening
+      // up the top row for the new battery.
       const movedItems = layout.filter(i => prevIds.has(i.id)).filter(i => {
         const prev = prevLayout.find(p => p.id === i.id)
         return prev && (prev.xFt !== i.xFt || prev.yFt !== i.yFt)
       })
-      const sortFn = (a: LayoutItem, b: LayoutItem) => a.yFt !== b.yFt ? a.yFt - b.yFt : a.xFt - b.xFt
-      const sortedMoved = [...movedItems].sort(sortFn)
+      const sortedMoved = [...movedItems].sort((a, b) => {
+        const aPrev = prevLayout.find(p => p.id === a.id)!
+        const bPrev = prevLayout.find(p => p.id === b.id)!
+        // Transformers animate before batteries
+        if (a.zone !== b.zone) return a.zone === 'transformer' ? -1 : 1
+        // Within each zone: bottommost old position first so each item clears space above it
+        return aPrev.yFt !== bPrev.yFt ? bPrev.yFt - aPrev.yFt : aPrev.xFt - bPrev.xFt
+      })
       const newSlideDelayMap = new Map<string, number>()
       sortedMoved.forEach((item, idx) => newSlideDelayMap.set(item.id, idx * 70))
       slideDelayMapRef.current = newSlideDelayMap
 
-      // New items grow in after the moved items have started sliding.
+      // New items grow in after all moves, top→bottom (topmost freed slot first).
       const moveOffset = sortedMoved.length * 70
-      const sortedNew = [...addedItems].sort(sortFn)
+      const sortedNew = [...addedItems].sort((a, b) => a.yFt !== b.yFt ? a.yFt - b.yFt : a.xFt - b.xFt)
       const newGrowDelayMap = new Map<string, number>()
       sortedNew.forEach((item, idx) => newGrowDelayMap.set(item.id, moveOffset + idx * 70))
       growDelayMapRef.current = newGrowDelayMap
@@ -355,6 +374,7 @@ export default function SiteCanvas({ sitePlan, isLoading, error, onRemove, siteN
         setAnimatingIds(new Set())
         growDelayMapRef.current = new Map()
         slideDelayMapRef.current = new Map()
+        setMinCanvasSize(null)
       }, totalDuration)
       setDisplayLayout(layout)
       setExitingIds(new Set())

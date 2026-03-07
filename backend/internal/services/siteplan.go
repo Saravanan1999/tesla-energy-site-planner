@@ -388,7 +388,7 @@ func packHeightOnly(devices []deviceSpec, startX, startY, usableWidthFt int) (in
 
 	sorted := make([]deviceSpec, len(devices))
 	copy(sorted, devices)
-	sort.Slice(sorted, func(i, j int) bool {
+	sort.SliceStable(sorted, func(i, j int) bool {
 		return sorted[i].widthFt > sorted[j].widthFt
 	})
 
@@ -438,7 +438,7 @@ func packRows(devices []deviceSpec, zone models.LayoutZone, startX, startY, usab
 	// Validate and sort a working copy by width descending
 	sorted := make([]deviceSpec, len(devices))
 	copy(sorted, devices)
-	sort.Slice(sorted, func(i, j int) bool {
+	sort.SliceStable(sorted, func(i, j int) bool {
 		return sorted[i].widthFt > sorted[j].widthFt
 	})
 
