@@ -568,29 +568,27 @@ export default function SiteCanvas({ sitePlan, isLoading, error, onRemove, siteN
       }
     }
 
-    // ── Battery row labels (drawn on top of blocks) ───────────────────────
-    batteryRowYs.forEach((yFt, idx) => {
-      const rowH = (batteryItems.find(i => i.yFt === yFt)?.heightFt ?? 0) * S
-      if (rowH <= 0) return
-      const rY = yFt * S
-      const rowLabel = `BATTERY ROW ${idx + 1}`
-      ctx.font = 'bold 9px system-ui,sans-serif'
-      const tw = ctx.measureText(rowLabel).width
-      // Pill sits in the left perimeter strip, vertically centred on the row
-      const ph = 16, pw = tw + 16
-      const px2 = 6
-      const py2 = rY + rowH / 2 - ph / 2
-      ctx.fillStyle = 'rgba(15,23,42,0.82)'; ctx.beginPath(); ctx.roundRect(px2, py2, pw, ph, 3); ctx.fill()
-      ctx.strokeStyle = 'rgba(59,130,246,0.6)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.roundRect(px2, py2, pw, ph, 3); ctx.stroke()
-      ctx.fillStyle = '#93c5fd'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle'
-      ctx.fillText(rowLabel, px2 + 8, py2 + ph / 2)
-    })
-
     // ── Site border ───────────────────────────────────────────────────────
     ctx.strokeStyle = 'rgba(71,85,105,0.5)'; ctx.lineWidth = 1.5; ctx.setLineDash([])
     ctx.strokeRect(0, 0, W, H)
 
     ctx.restore()
+
+    // ── Battery row labels (drawn in left padding — no overlap with perimeter text) ──
+    batteryRowYs.forEach((yFt, idx) => {
+      const rowH = (batteryItems.find(i => i.yFt === yFt)?.heightFt ?? 0) * S
+      if (rowH <= 0) return
+      const rowLabel = `ROW ${idx + 1}`
+      ctx.font = 'bold 9px system-ui,sans-serif'
+      const tw = ctx.measureText(rowLabel).width
+      const ph = 16, pw = tw + 12
+      const px2 = pad - pw - 4          // right-align inside the left padding gap
+      const py2 = pad + yFt * S + rowH / 2 - ph / 2
+      ctx.fillStyle = 'rgba(15,23,42,0.82)'; ctx.beginPath(); ctx.roundRect(px2, py2, pw, ph, 3); ctx.fill()
+      ctx.strokeStyle = 'rgba(59,130,246,0.6)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.roundRect(px2, py2, pw, ph, 3); ctx.stroke()
+      ctx.fillStyle = '#93c5fd'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle'
+      ctx.fillText(rowLabel, px2 + 6, py2 + ph / 2)
+    })
 
     // ── Dimension labels ──────────────────────────────────────────────────
     ctx.fillStyle = 'rgba(100,116,139,0.65)'; ctx.font = '11px system-ui,sans-serif'
@@ -735,7 +733,7 @@ export default function SiteCanvas({ sitePlan, isLoading, error, onRemove, siteN
   const { metrics, safetyAssumptions } = sitePlan
 
   return (
-    <div className="relative flex-1 flex flex-col overflow-hidden">
+    <div className="relative flex-1 flex flex-col overflow-hidden min-h-[420px] md:min-h-0">
       {/* Canvas toolbar */}
       <div className="px-3 md:px-4 py-2 border-b border-gray-800 flex items-center justify-between shrink-0 gap-2">
         <div className="flex items-center gap-2">
@@ -829,7 +827,7 @@ export default function SiteCanvas({ sitePlan, isLoading, error, onRemove, siteN
                 <div className="px-2 py-1 rounded bg-gray-900 border border-gray-700 shadow-xl text-[10px] text-gray-200">Zoom out</div>
               </div>
             </div>
-            <span className="w-10 text-center tabular-nums">{Math.round(zoom * 100)}%</span>
+            <span className="hidden xs:inline w-10 text-center tabular-nums">{Math.round(zoom * 100)}%</span>
             <div className="relative group/zoomin">
               <button
                 onClick={() => { const z = Math.min(5, zoom + 0.25); setZoom(z) }}
