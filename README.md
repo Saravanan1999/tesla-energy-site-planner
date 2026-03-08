@@ -28,7 +28,7 @@ A site planning tool for utility-scale battery storage projects. Pick from avail
 |------|---------|
 | [Node.js](https://nodejs.org/) | v20+ |
 | [Go](https://go.dev/) | v1.21+ |
-| `make` | pre-installed on macOS/Linux |
+| `make` | pre-installed on macOS/Linux; Windows users can use [WSL](https://learn.microsoft.com/en-us/windows/wsl/install) or run the backend and frontend commands directly |
 
 ---
 
