@@ -710,7 +710,7 @@ export default function SiteCanvas({ sitePlan, isLoading, error, onRemove, siteN
   return (
     <div className="relative flex-1 flex flex-col overflow-hidden">
       {/* Canvas toolbar */}
-      <div className="px-3 md:px-4 py-2 border-b border-gray-800 flex items-center justify-between shrink-0 gap-2 overflow-x-auto">
+      <div className="px-3 md:px-4 py-2 border-b border-gray-800 flex items-center justify-between shrink-0 gap-2">
         <div className="flex items-center gap-2">
           <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-widest">Site Layout</h2>
           <div className="flex flex-col">
