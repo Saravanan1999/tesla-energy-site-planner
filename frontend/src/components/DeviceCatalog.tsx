@@ -12,7 +12,7 @@ export default function DeviceCatalog({ devices, quantities, onChange }: Props) 
   const totalEnergy = devices.reduce((sum, d) => sum + d.energyMWh * (quantities[d.id] ?? 0), 0)
 
   return (
-    <aside className="w-72 shrink-0 flex flex-col bg-gray-950 border-r border-gray-800">
+    <aside className="w-full md:w-72 shrink-0 flex flex-col bg-gray-950 border-b md:border-b-0 md:border-r border-gray-800">
       {/* Header */}
       <div className="px-4 py-3 border-b border-gray-800 shrink-0">
         <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-widest">

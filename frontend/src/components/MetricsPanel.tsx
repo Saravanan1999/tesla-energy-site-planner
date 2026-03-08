@@ -52,9 +52,9 @@ export default function MetricsPanel({ metrics, safetyAssumptions }: Props) {
 
   return (
     <div className="shrink-0 border-t border-gray-800 bg-gray-900/60 px-4 py-3">
-      <div className="flex items-center gap-6 overflow-x-auto">
+      <div className="flex flex-wrap items-start gap-x-6 gap-y-3 overflow-x-auto">
         {stats.map((s, i) => (
-          <div key={i} className="shrink-0">
+          <div key={i} className="shrink-0 min-w-[120px]">
             <p className="text-[10px] text-gray-500 uppercase tracking-widest mb-0.5">{s.label}</p>
             <p className={`text-base font-semibold leading-tight ${s.accent ?? 'text-white'}`}>
               {s.value}
