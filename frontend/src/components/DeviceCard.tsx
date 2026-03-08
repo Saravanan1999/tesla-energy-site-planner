@@ -1,4 +1,5 @@
 import type { Device } from '../types/api'
+import InfoTooltip from './InfoTooltip'
 
 interface Props {
   device: Device
@@ -60,29 +61,16 @@ export default function DeviceCard({ device, quantity, onChange }: Props) {
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-1.5 min-w-0">
             <h3 className="text-sm font-semibold text-white leading-tight truncate">{device.name}</h3>
-            <div className="relative group shrink-0">
-              <svg className="w-3.5 h-3.5 text-gray-500 hover:text-gray-300 cursor-default transition-colors" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a.75.75 0 000 1.5h.253a.25.25 0 01.244.304l-.459 2.066A1.75 1.75 0 0010.747 15H11a.75.75 0 000-1.5h-.253a.25.25 0 01-.244-.304l.459-2.066A1.75 1.75 0 009.253 9H9z" clipRule="evenodd" />
-              </svg>
-              <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 hidden group-hover:block z-20 pointer-events-none">
-                <div className="bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-xs text-gray-300 whitespace-nowrap shadow-xl">
-                  <div className="flex flex-col gap-1">
-                    <span><span className="text-gray-500">Energy</span> {device.energyMWh} MWh</span>
-                    <span><span className="text-gray-500">Released</span> {device.releaseYear}</span>
-                  </div>
-                  <div className="absolute left-1/2 -translate-x-1/2 top-full w-2 h-2 bg-gray-800 border-r border-b border-gray-600 rotate-45 -mt-1" />
-                </div>
+            <InfoTooltip align="left">
+              <div className="flex flex-col gap-1">
+                <span><span className="text-gray-500">Energy</span> {device.energyMWh} MWh</span>
+                <span><span className="text-gray-500">Released</span> {device.releaseYear}</span>
               </div>
-            </div>
+            </InfoTooltip>
           </div>
-          <div className="relative group shrink-0">
+          <div className="flex items-center gap-1 shrink-0">
             <span className="text-xs text-gray-400 cursor-default">${device.cost.toLocaleString()}<span className="text-gray-600">/device</span></span>
-            <div className="absolute right-0 bottom-full mb-1.5 hidden group-hover:block z-20 pointer-events-none">
-              <div className="bg-gray-800 border border-gray-600 rounded-lg px-2.5 py-1.5 text-xs text-gray-300 whitespace-nowrap shadow-xl">
-                Unit price per device
-                <div className="absolute right-3 top-full w-2 h-2 bg-gray-800 border-r border-b border-gray-600 rotate-45 -mt-1" />
-              </div>
-            </div>
+            <InfoTooltip align="right">Unit price per device</InfoTooltip>
           </div>
         </div>
       </div>
@@ -106,16 +94,11 @@ export default function DeviceCard({ device, quantity, onChange }: Props) {
           className="w-7 h-7 rounded-md bg-gray-700 hover:bg-gray-600 text-white font-bold text-sm flex items-center justify-center transition-colors"
         >+</button>
         {isActive && (
-          <div className="relative group ml-auto">
+          <div className="flex items-center gap-1 ml-auto">
             <span className="text-xs text-blue-400 font-medium cursor-default">
               ${(device.cost * quantity).toLocaleString()}
             </span>
-            <div className="absolute right-0 bottom-full mb-1.5 hidden group-hover:block z-20 pointer-events-none">
-              <div className="bg-gray-800 border border-gray-600 rounded-lg px-2.5 py-1.5 text-xs text-gray-300 whitespace-nowrap shadow-xl">
-                Subtotal: {quantity} × ${device.cost.toLocaleString()}
-                <div className="absolute right-3 top-full w-2 h-2 bg-gray-800 border-r border-b border-gray-600 rotate-45 -mt-1" />
-              </div>
-            </div>
+            <InfoTooltip align="right">Subtotal: {quantity} × ${device.cost.toLocaleString()}</InfoTooltip>
           </div>
         )}
       </div>
