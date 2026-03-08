@@ -4,6 +4,7 @@ import InfoTooltip from './InfoTooltip'
 interface Props {
   device: Device
   quantity: number
+  maxQty: number
   onChange: (qty: number) => void
 }
 
@@ -45,8 +46,9 @@ function DeviceIcon({ device }: { device: Device }) {
   )
 }
 
-export default function DeviceCard({ device, quantity, onChange }: Props) {
+export default function DeviceCard({ device, quantity, maxQty, onChange }: Props) {
   const isActive = quantity > 0
+  const atLimit = quantity >= maxQty
 
   return (
     <div className={`rounded-xl border p-4 transition-all duration-200 cursor-default
@@ -84,14 +86,16 @@ export default function DeviceCard({ device, quantity, onChange }: Props) {
         <input
           type="number"
           min={0}
-          max={999}
+          max={maxQty}
           value={quantity}
-          onChange={e => onChange(Math.max(0, Math.min(999, parseInt(e.target.value) || 0)))}
-          className="w-14 h-7 text-center text-sm bg-gray-800 border border-gray-600 rounded-md text-white focus:outline-none focus:border-blue-500"
+          onChange={e => onChange(Math.max(0, Math.min(maxQty, parseInt(e.target.value) || 0)))}
+          className={`w-14 h-7 text-center text-sm bg-gray-800 border rounded-md text-white focus:outline-none transition-colors
+            ${atLimit ? 'border-amber-500/70 focus:border-amber-400' : 'border-gray-600 focus:border-blue-500'}`}
         />
         <button
-          onClick={() => onChange(Math.min(999, quantity + 1))}
-          className="w-7 h-7 rounded-md bg-gray-700 hover:bg-gray-600 text-white font-bold text-sm flex items-center justify-center transition-colors"
+          onClick={() => onChange(Math.min(maxQty, quantity + 1))}
+          disabled={atLimit}
+          className="w-7 h-7 rounded-md bg-gray-700 hover:bg-gray-600 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold text-sm flex items-center justify-center transition-colors"
         >+</button>
         {isActive && (
           <div className="flex items-center gap-1 ml-auto">
@@ -102,6 +106,11 @@ export default function DeviceCard({ device, quantity, onChange }: Props) {
           </div>
         )}
       </div>
+      {atLimit && (
+        <p className="mt-1.5 text-[10px] text-amber-400/80">
+          500 MWh total limit reached — remove other devices to add more.
+        </p>
+      )}
     </div>
   )
 }
