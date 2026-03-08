@@ -522,11 +522,15 @@ export default function SiteCanvas({ sitePlan, isLoading, error, onRemove, siteN
       ctx.fillText(`ROW AISLE — ${sa.rowAisleFt} ft`, W / 2, aT + aH / 2)
     })
 
-    // ── Battery row labels ────────────────────────────────────────────────
-    batteryRowYs.forEach((yFt, idx) => {
-      ctx.fillStyle = 'rgba(255,255,255,0.18)'; ctx.font = 'bold 8px system-ui,sans-serif'
-      ctx.textAlign = 'left'; ctx.textBaseline = 'top'
-      ctx.fillText(`BATTERY ROW ${idx + 1}`, pm + 4, yFt * S + 3)
+    // ── Battery row bands (drawn under blocks) ───────────────────────────
+    batteryRowYs.forEach((yFt) => {
+      const rowH = (batteryItems.find(i => i.yFt === yFt)?.heightFt ?? 0) * S
+      if (rowH <= 0) return
+      const rY = yFt * S
+      ctx.fillStyle = 'rgba(59,130,246,0.06)'
+      ctx.fillRect(0, rY, W, rowH)
+      ctx.strokeStyle = 'rgba(59,130,246,0.25)'; ctx.lineWidth = 1; ctx.setLineDash([])
+      ctx.beginPath(); ctx.moveTo(0, rY); ctx.lineTo(W, rY); ctx.stroke()
     })
 
     // ── Layout items ──────────────────────────────────────────────────────
@@ -563,6 +567,24 @@ export default function SiteCanvas({ sitePlan, isLoading, error, onRemove, siteN
         ctx.fillText(label, x + w / 2, y + h - 3, w - 8)
       }
     }
+
+    // ── Battery row labels (drawn on top of blocks) ───────────────────────
+    batteryRowYs.forEach((yFt, idx) => {
+      const rowH = (batteryItems.find(i => i.yFt === yFt)?.heightFt ?? 0) * S
+      if (rowH <= 0) return
+      const rY = yFt * S
+      const rowLabel = `BATTERY ROW ${idx + 1}`
+      ctx.font = 'bold 9px system-ui,sans-serif'
+      const tw = ctx.measureText(rowLabel).width
+      // Pill sits in the left perimeter strip, vertically centred on the row
+      const ph = 16, pw = tw + 16
+      const px2 = 6
+      const py2 = rY + rowH / 2 - ph / 2
+      ctx.fillStyle = 'rgba(15,23,42,0.82)'; ctx.beginPath(); ctx.roundRect(px2, py2, pw, ph, 3); ctx.fill()
+      ctx.strokeStyle = 'rgba(59,130,246,0.6)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.roundRect(px2, py2, pw, ph, 3); ctx.stroke()
+      ctx.fillStyle = '#93c5fd'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle'
+      ctx.fillText(rowLabel, px2 + 8, py2 + ph / 2)
+    })
 
     // ── Site border ───────────────────────────────────────────────────────
     ctx.strokeStyle = 'rgba(71,85,105,0.5)'; ctx.lineWidth = 1.5; ctx.setLineDash([])
