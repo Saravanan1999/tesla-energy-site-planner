@@ -46,6 +46,14 @@ cd backend && go run ./cmd/server
 cd frontend && npm install && npm run dev
 ```
 
+## Optimization Algorithms
+
+See [ALGORITHMS.md](ALGORITHMS.md) for a full description of all three optimization modes:
+
+- **Minimize site area** — given a fixed total power target
+- **Minimize cost** — given a fixed total power target
+- **Maximize power** — given a fixed site area
+
 ## API Endpoints
 
 | Method | Path                     | Description              |

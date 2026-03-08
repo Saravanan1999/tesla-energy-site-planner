@@ -114,9 +114,9 @@ export default function App() {
           return
         }
         const plan = res.data
-        const first = plan.requestedDevices[0]
-        const dev = first ? deviceMap.get(first.id) : undefined
-        const label = dev ? `${first.quantity}× ${dev.name}` : `${first?.quantity ?? ''}×`
+        const label = plan.requestedDevices
+          .map(d => { const dev = deviceMap.get(d.id); return dev ? `${d.quantity}× ${dev.name}` : `${d.quantity}×` })
+          .join(' + ')
         setOptimalLayouts(prev => ({ ...prev, [obj]: { label, plan } }))
       })
     })
@@ -302,7 +302,7 @@ export default function App() {
       manualSnapshotRef.current = null
     }
     // Push current state onto undo stack so user can step back
-    setAppliedSnapshots(prev => [...prev, { quantities: { ...quantities }, label: `${suggestion.toQty}× ${suggestion.toLabel}`, type: 'apply' as const }])
+    setAppliedSnapshots(prev => [...prev, { quantities: { ...quantities }, label: suggestion.toLabel, type: 'apply' as const }])
     // Full replacement: algorithm computed the optimal mix, override everything
     const next = suggestion.newQuantities
       ? { ...suggestion.newQuantities }
