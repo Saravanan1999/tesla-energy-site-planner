@@ -8,8 +8,10 @@ type SessionDevice struct {
 }
 
 type CreateSessionRequest struct {
-	Name    string          `json:"name"`
-	Devices []SessionDevice `json:"devices"`
+	Name      string                `json:"name"`
+	Devices   []SessionDevice       `json:"devices"`
+	Objective OptimizationObjective `json:"objective,omitempty"`
+	SitePlan  *SitePlanData         `json:"sitePlan,omitempty"`
 }
 
 type SessionData struct {

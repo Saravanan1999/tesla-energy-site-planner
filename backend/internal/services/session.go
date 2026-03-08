@@ -23,8 +23,10 @@ func NewSessionService(db *sql.DB) *SessionService {
 // SessionRecord is the raw session as loaded from the DB, with devices
 // deserialized into ConfiguredDevice so they can be passed to SitePlanService.
 type SessionRecord struct {
-	Meta    models.SessionData
-	Devices []models.ConfiguredDevice
+	Meta      models.SessionData
+	Devices   []models.ConfiguredDevice
+	Objective models.OptimizationObjective
+	SitePlan  *models.SitePlanData // nil if no layout was stored (fall back to regeneration)
 }
 
 func (s *SessionService) Create(ctx context.Context, req models.CreateSessionRequest) (*models.SessionData, *models.APIError) {
@@ -36,6 +38,12 @@ func (s *SessionService) Create(ctx context.Context, req models.CreateSessionReq
 			Message: "Session config is invalid.",
 			Details: []string{"Name is required."},
 		}
+	}
+
+	// Normalize objective
+	objective := string(req.Objective)
+	if objective == "" {
+		objective = string(models.ObjectiveMinArea)
 	}
 
 	// Validate device quantities
@@ -85,6 +93,15 @@ func (s *SessionService) Create(ctx context.Context, req models.CreateSessionReq
 		return nil, &models.APIError{Code: models.ErrorInternal, Message: "Failed to serialize devices."}
 	}
 
+	var sitePlanJSON string
+	if req.SitePlan != nil {
+		b, err := json.Marshal(req.SitePlan)
+		if err != nil {
+			return nil, &models.APIError{Code: models.ErrorInternal, Message: "Failed to serialize site plan."}
+		}
+		sitePlanJSON = string(b)
+	}
+
 	// Check if a session with this name already exists
 	var existingSessionID string
 	err = s.db.QueryRowContext(ctx,
@@ -92,21 +109,21 @@ func (s *SessionService) Create(ctx context.Context, req models.CreateSessionReq
 	).Scan(&existingSessionID)
 
 	if err == sql.ErrNoRows {
-		return s.insert(ctx, name, string(devicesJSON))
+		return s.insert(ctx, name, string(devicesJSON), objective, sitePlanJSON)
 	}
 	if err != nil {
 		return nil, &models.APIError{Code: models.ErrorInternal, Message: "Failed to check existing session."}
 	}
-	return s.update(ctx, existingSessionID, name, string(devicesJSON))
+	return s.update(ctx, existingSessionID, name, string(devicesJSON), objective, sitePlanJSON)
 }
 
-func (s *SessionService) insert(ctx context.Context, name, devicesJSON string) (*models.SessionData, *models.APIError) {
+func (s *SessionService) insert(ctx context.Context, name, devicesJSON, objective, sitePlanJSON string) (*models.SessionData, *models.APIError) {
 	sessionID := uuid.New().String()
 	savedAt := time.Now().UTC()
 
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO sessions (session_id, name, devices, saved_at) VALUES (?, ?, ?, ?)`,
-		sessionID, name, devicesJSON, savedAt.Format(time.RFC3339),
+		`INSERT INTO sessions (session_id, name, devices, saved_at, optimization_objective, site_plan_json) VALUES (?, ?, ?, ?, ?, ?)`,
+		sessionID, name, devicesJSON, savedAt.Format(time.RFC3339), objective, sitePlanJSON,
 	)
 	if err != nil {
 		return nil, &models.APIError{Code: models.ErrorInternal, Message: "Failed to save session."}
@@ -115,12 +132,55 @@ func (s *SessionService) insert(ctx context.Context, name, devicesJSON string) (
 	return &models.SessionData{SessionID: sessionID, Name: name, SavedAt: savedAt}, nil
 }
 
-func (s *SessionService) update(ctx context.Context, sessionID, name, devicesJSON string) (*models.SessionData, *models.APIError) {
+// UpdateByID updates an existing session's name, devices, and objective by its ID.
+func (s *SessionService) UpdateByID(ctx context.Context, sessionID string, req models.CreateSessionRequest) (*models.SessionData, *models.APIError) {
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		return nil, &models.APIError{
+			Code:    models.ErrorInvalidConfig,
+			Message: "Session config is invalid.",
+			Details: []string{"Name is required."},
+		}
+	}
+
+	objective := string(req.Objective)
+	if objective == "" {
+		objective = string(models.ObjectiveMinArea)
+	}
+
+	// Verify session exists
+	var existing string
+	err := s.db.QueryRowContext(ctx, `SELECT session_id FROM sessions WHERE session_id = ?`, sessionID).Scan(&existing)
+	if err == sql.ErrNoRows {
+		return nil, &models.APIError{Code: models.ErrorInvalidConfig, Message: "Session not found."}
+	}
+	if err != nil {
+		return nil, &models.APIError{Code: models.ErrorInternal, Message: "Failed to verify session."}
+	}
+
+	devicesJSON, err := json.Marshal(req.Devices)
+	if err != nil {
+		return nil, &models.APIError{Code: models.ErrorInternal, Message: "Failed to serialize devices."}
+	}
+
+	var sitePlanJSON string
+	if req.SitePlan != nil {
+		b, err := json.Marshal(req.SitePlan)
+		if err != nil {
+			return nil, &models.APIError{Code: models.ErrorInternal, Message: "Failed to serialize site plan."}
+		}
+		sitePlanJSON = string(b)
+	}
+
+	return s.update(ctx, sessionID, name, string(devicesJSON), objective, sitePlanJSON)
+}
+
+func (s *SessionService) update(ctx context.Context, sessionID, name, devicesJSON, objective, sitePlanJSON string) (*models.SessionData, *models.APIError) {
 	savedAt := time.Now().UTC()
 
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE sessions SET devices = ?, saved_at = ? WHERE session_id = ?`,
-		devicesJSON, savedAt.Format(time.RFC3339), sessionID,
+		`UPDATE sessions SET name = ?, devices = ?, saved_at = ?, optimization_objective = ?, site_plan_json = ? WHERE session_id = ?`,
+		name, devicesJSON, savedAt.Format(time.RFC3339), objective, sitePlanJSON, sessionID,
 	)
 	if err != nil {
 		return nil, &models.APIError{Code: models.ErrorInternal, Message: "Failed to update session."}
@@ -161,11 +221,24 @@ func (s *SessionService) List(ctx context.Context) ([]models.SessionData, *model
 	return sessions, nil
 }
 
+func (s *SessionService) DeleteByID(ctx context.Context, sessionID string) *models.APIError {
+	res, err := s.db.ExecContext(ctx, `DELETE FROM sessions WHERE session_id = ?`, sessionID)
+	if err != nil {
+		return &models.APIError{Code: models.ErrorInternal, Message: "Failed to delete session."}
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return &models.APIError{Code: models.ErrorInvalidConfig, Message: "Session not found."}
+	}
+	return nil
+}
+
 func (s *SessionService) GetByID(ctx context.Context, sessionID string) (*SessionRecord, *models.APIError) {
-	var name, devicesJSON, savedAtStr string
+	var name, devicesJSON, savedAtStr, objectiveStr string
+	var sitePlanJSONPtr *string
 	err := s.db.QueryRowContext(ctx,
-		`SELECT name, devices, saved_at FROM sessions WHERE session_id = ?`, sessionID,
-	).Scan(&name, &devicesJSON, &savedAtStr)
+		`SELECT name, devices, saved_at, optimization_objective, site_plan_json FROM sessions WHERE session_id = ?`, sessionID,
+	).Scan(&name, &devicesJSON, &savedAtStr, &objectiveStr, &sitePlanJSONPtr)
 	if err == sql.ErrNoRows {
 		return nil, &models.APIError{Code: models.ErrorInvalidConfig, Message: "Session not found."}
 	}
@@ -183,8 +256,23 @@ func (s *SessionService) GetByID(ctx context.Context, sessionID string) (*Sessio
 		return nil, &models.APIError{Code: models.ErrorInternal, Message: "Failed to deserialize session devices."}
 	}
 
+	objective := models.OptimizationObjective(objectiveStr)
+	if objective == "" {
+		objective = models.ObjectiveMinArea
+	}
+
+	var sitePlan *models.SitePlanData
+	if sitePlanJSONPtr != nil && *sitePlanJSONPtr != "" {
+		var sp models.SitePlanData
+		if err := json.Unmarshal([]byte(*sitePlanJSONPtr), &sp); err == nil {
+			sitePlan = &sp
+		}
+	}
+
 	return &SessionRecord{
-		Meta:    models.SessionData{SessionID: sessionID, Name: name, SavedAt: savedAt},
-		Devices: devices,
+		Meta:      models.SessionData{SessionID: sessionID, Name: name, SavedAt: savedAt},
+		Devices:   devices,
+		Objective: objective,
+		SitePlan:  sitePlan,
 	}, nil
 }
