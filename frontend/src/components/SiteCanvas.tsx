@@ -593,7 +593,7 @@ export default function SiteCanvas({ sitePlan, error, onRemove, siteName, onSite
     ctx.fillStyle = 'rgba(100,116,139,0.65)'; ctx.font = '11px system-ui,sans-serif'
     ctx.textAlign = 'center'; ctx.textBaseline = 'top'
     ctx.fillText(`${metrics.siteWidthFt} ft`, pad + W / 2, pad + H + 8)
-    ctx.save(); ctx.translate(pad - 10, pad + H / 2); ctx.rotate(-Math.PI / 2)
+    ctx.save(); ctx.translate(pad + W + 14, pad + H / 2); ctx.rotate(Math.PI / 2)
     ctx.textAlign = 'center'; ctx.fillText(`${metrics.siteHeightFt} ft`, 0, 0); ctx.restore()
 
     // ── Site name ─────────────────────────────────────────────────────────
@@ -722,7 +722,7 @@ export default function SiteCanvas({ sitePlan, error, onRemove, siteName, onSite
   const { metrics, safetyAssumptions } = sitePlan
 
   return (
-    <div className="relative flex-1 flex flex-col overflow-hidden min-h-[420px] md:min-h-0 canvas-reveal">
+    <div className="relative flex-1 flex flex-col overflow-hidden min-h-[420px] md:min-h-0">
       {/* Canvas toolbar */}
       <div className="px-3 md:px-4 py-2 border-b border-gray-800 flex items-center justify-between shrink-0 gap-2">
         <div className="flex items-center gap-2">
