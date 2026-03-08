@@ -335,7 +335,7 @@ export default function OptimizationPanel({
             <div className="flex items-baseline gap-0">
             {constraintMode === 'power' ? (
               editingMWh ? (
-                <span className="flex items-baseline gap-1">
+                <span className="flex items-center gap-1">
                   <input
                     autoFocus
                     type="number" min="0.1" step="0.1"
@@ -347,6 +347,12 @@ export default function OptimizationPanel({
                     style={{ border: '1px solid rgba(37,99,235,0.5)' }}
                   />
                   <span className="text-gray-400 text-sm">MWh</span>
+                  <button
+                    onMouseDown={e => e.preventDefault()}
+                    onClick={commitMWh}
+                    className="w-6 h-6 flex items-center justify-center rounded bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition-colors shrink-0"
+                    title="Confirm"
+                  >✓</button>
                 </span>
               ) : (
                 <button onClick={startEditingMWh} title="Click to change target energy"
@@ -356,7 +362,7 @@ export default function OptimizationPanel({
               )
             ) : (
               editingArea ? (
-                <span className="flex items-baseline gap-1">
+                <span className="flex items-center gap-1">
                   <input
                     autoFocus
                     type="number" min="100" step="100"
@@ -368,6 +374,12 @@ export default function OptimizationPanel({
                     style={{ border: '1px solid rgba(37,99,235,0.5)' }}
                   />
                   <span className="text-gray-400 text-sm">sq ft</span>
+                  <button
+                    onMouseDown={e => e.preventDefault()}
+                    onClick={commitArea}
+                    className="w-6 h-6 flex items-center justify-center rounded bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition-colors shrink-0"
+                    title="Confirm"
+                  >✓</button>
                 </span>
               ) : (
                 <button onClick={startEditingArea} title="Click to change target area"

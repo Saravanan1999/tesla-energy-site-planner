@@ -1,3 +1,8 @@
+/* Ensure dark background fills any area exposed when mobile keyboard opens */
+html, body {
+  background-color: #030712; /* gray-950 */
+}
+
 @keyframes grow-in-x {
   from { transform: scaleX(0); opacity: 0; }
   to   { transform: scaleX(1); opacity: 1; }
