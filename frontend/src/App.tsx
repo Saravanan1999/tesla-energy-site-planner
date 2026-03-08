@@ -434,7 +434,11 @@ export default function App() {
   const handleNewSession = async (saveFirst: boolean) => {
     setConfirmNew(false)
     if (saveFirst) await handleSave()
+    setLoadingSplash(true)
+    setLoadingSplashFading(false)
     resetSession()
+    setTimeout(() => setLoadingSplashFading(true), 600)
+    setTimeout(() => setLoadingSplash(false), 1000)
   }
 
   const handleSaveAs = async (newName: string): Promise<boolean> => {
@@ -533,7 +537,7 @@ export default function App() {
 
         <div className="flex items-center gap-2">
           <button
-            onClick={() => { if (isDirty && hasSelection) setConfirmNew(true); else resetSession() }}
+            onClick={() => { if (isDirty && hasSelection) setConfirmNew(true); else { setLoadingSplash(true); setLoadingSplashFading(false); resetSession(); setTimeout(() => setLoadingSplashFading(true), 600); setTimeout(() => setLoadingSplash(false), 1000) } }}
             className="px-3 py-1.5 text-xs text-gray-400 hover:text-white border border-gray-700 hover:border-gray-500 rounded-lg transition-colors"
           >
             New Session
