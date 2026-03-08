@@ -73,7 +73,6 @@ export interface SitePlanData {
   safetyAssumptions: SafetyAssumptions
   warnings?: string[]
   objective: OptimizationObjective
-  suggestion?: OptimizationSuggestion
 }
 
 export interface SessionData {

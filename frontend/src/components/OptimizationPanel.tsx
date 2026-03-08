@@ -31,12 +31,12 @@ const OBJECTIVES: { id: Exclude<OptimizationObjective, 'user_plan'>; label: stri
   { id: 'min_cost', label: 'Lowest Cost', description: 'Lowest total equipment cost at fixed total MWh' },
 ]
 
-function fmtCost(c: number): string {
+export function fmtCost(c: number): string {
   return c >= 1_000_000 ? `$${(c / 1_000_000).toFixed(1)}M` : c >= 1000 ? `$${Math.round(c / 1000)}k` : `$${c}`
 }
 
 /** Build the reason string from actual generated metrics. */
-function buildReason(
+export function buildReason(
   obj: 'min_area' | 'min_cost',
   entry: OptimalEntry,
   current: SitePlanData,
@@ -76,7 +76,7 @@ function buildReason(
 }
 
 /** Compute a suggestion from an OptimalEntry for passing to onApply. */
-function entryToSuggestion(entry: OptimalEntry, current: SitePlanData): OptimizationSuggestion {
+export function entryToSuggestion(entry: OptimalEntry, current: SitePlanData): OptimizationSuggestion {
   const om = entry.plan.metrics
   const cm = current.metrics
   const first = entry.plan.requestedDevices[0]
@@ -97,7 +97,7 @@ function entryToSuggestion(entry: OptimalEntry, current: SitePlanData): Optimiza
 
 interface PlanBadge { label: string; text: string; good: boolean; loading: boolean }
 
-function computePlanBadges(current: SitePlanData, optimalLayouts: OptimalLayouts): PlanBadge[] {
+export function computePlanBadges(current: SitePlanData, optimalLayouts: OptimalLayouts): PlanBadge[] {
   const cm = current.metrics
 
   const areaBadge = (): PlanBadge => {
