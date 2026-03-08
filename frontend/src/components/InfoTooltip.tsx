@@ -11,8 +11,9 @@ interface TooltipStyle {
   top?: number
   bottom?: number
   left: number
-  maxWidth: number
 }
+
+const MAX_TOOLTIP_WIDTH = 200
 
 export default function InfoTooltip({ children }: Props) {
   const [open, setOpen] = useState(false)
@@ -40,6 +41,8 @@ export default function InfoTooltip({ children }: Props) {
   useEffect(() => { if (!open) setStyle(null) }, [open])
 
   // Position the tooltip after it renders using viewport coordinates.
+  // maxWidth is enforced by CSS class only — never overridden in inline style,
+  // so measured box.width matches the final rendered width.
   useLayoutEffect(() => {
     if (!open || !anchorRef.current || !boxRef.current) return
     const anchor = anchorRef.current.getBoundingClientRect()
@@ -53,11 +56,11 @@ export default function InfoTooltip({ children }: Props) {
     const spaceBelow = window.innerHeight - anchor.bottom - MARGIN
     const showAbove = spaceAbove >= box.height || spaceAbove >= spaceBelow
 
-    // Horizontal: center on anchor, clamp within viewport
+    // Horizontal: center on anchor, clamp so box stays within viewport
     let left = anchor.left + anchor.width / 2 - box.width / 2
     left = Math.max(MARGIN, Math.min(vw - MARGIN - box.width, left))
 
-    const next: TooltipStyle = { left, maxWidth: vw - MARGIN * 2 }
+    const next: TooltipStyle = { left }
     if (showAbove) {
       next.bottom = window.innerHeight - anchor.top + GAP
     } else {
@@ -67,12 +70,12 @@ export default function InfoTooltip({ children }: Props) {
     setStyle(next)
   }, [open])
 
-  const arrowLeft = anchorRef.current
+  const arrowLeft = anchorRef.current && style
     ? Math.max(6, Math.min(
-        (style?.maxWidth ?? 200) - 14,
+        MAX_TOOLTIP_WIDTH - 14,
         anchorRef.current.getBoundingClientRect().left +
           anchorRef.current.getBoundingClientRect().width / 2 -
-          (style?.left ?? 0) - 4
+          style.left - 4
       ))
     : 8
 
@@ -88,10 +91,9 @@ export default function InfoTooltip({ children }: Props) {
         <div
           ref={boxRef}
           className="fixed z-[9999] bg-gray-800 border border-gray-600 rounded-lg px-2.5 py-1.5 text-xs text-gray-300 shadow-xl w-max max-w-[200px] pointer-events-none"
-          style={style ? { top: style.top, bottom: style.bottom, left: style.left, maxWidth: style.maxWidth } : { visibility: 'hidden', top: 0, left: 0 }}
+          style={style ? { top: style.top, bottom: style.bottom, left: style.left } : { visibility: 'hidden', top: 0, left: 0 }}
         >
           {children}
-          {/* Arrow */}
           <div
             className={`absolute w-2 h-2 bg-gray-800 border-gray-600 rotate-45 ${above ? 'top-full border-r border-b -mt-1' : 'bottom-full border-l border-t -mb-1'}`}
             style={{ left: arrowLeft }}
