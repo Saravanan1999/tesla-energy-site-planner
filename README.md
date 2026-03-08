@@ -1,6 +1,6 @@
 # Tesla Energy Site Planner
 
-A tool for planning Tesla Energy installations. Draw a site, pick devices (Megapack, Powerpack, Megacharger), and let the planner find the optimal layout and energy mix.
+A site planning tool for utility-scale battery storage projects. Pick from available Tesla Energy devices (Megapack, Powerpack,..) to construct a compliant site layout - or provide a land area or energy target and let the planner find the mix that best fits your requirements.
 
 > **New here?** Start below to get the app running, then see [DESIGN.md](DESIGN.md) for a full technical deep-dive.
 
@@ -8,10 +8,10 @@ A tool for planning Tesla Energy installations. Draw a site, pick devices (Megap
 
 ## What it does
 
-- Generates a 2D site layout that fits your land constraints
-- Optimizes device selection to hit an energy target or maximize power
-- Saves and restores named sessions
-- Exports the canvas to PNG or PDF
+- Select Tesla Energy devices (Megapack, Powerpack) and generate a compliant 2D site layout
+- Provide a land area or energy target to find the device mix that best fits your requirements
+- Save and restore your layout plans
+- Export the canvas to PNG or PDF
 
 ---
 
