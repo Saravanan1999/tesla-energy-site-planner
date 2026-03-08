@@ -623,6 +623,14 @@ func (s *SitePlanService) Optimize(ctx context.Context, req models.GenerateSiteP
 		}
 	}
 
+	if bestPlan == nil {
+		return nil, nil
+	}
+	// Return nil when the current plan is already at or better than the global optimum.
+	// The frontend treats a nil response as "already optimal".
+	if objectiveImprovement(objective, bestPlan.Metrics, currentPlan.Metrics) <= 0 {
+		return nil, nil
+	}
 	return bestPlan, nil
 }
 
