@@ -464,7 +464,7 @@ export default function App() {
   ) ? 'Name already taken — choose a different name to save.' : null
 
   return (
-    <div className="h-screen flex flex-col bg-gray-950 text-white overflow-auto md:overflow-hidden">
+    <div className="min-h-screen md:h-screen flex flex-col bg-gray-950 text-white overflow-auto md:overflow-hidden">
       {/* Splash screen */}
       {!splashGone && (
         <div className={`fixed inset-0 z-[100] bg-gray-950 flex flex-col items-center justify-center gap-5 ${splashFading ? 'splash-exit' : ''}`}>
