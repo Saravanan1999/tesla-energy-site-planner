@@ -15,12 +15,16 @@ async function post<T>(path: string, body: unknown): Promise<APIResponse<T>> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
-  return res.json()
+  const json = await res.json() as APIResponse<T>
+  if (!json.success) console.warn(`[api] POST ${path} failed`, json.error)
+  return json
 }
 
 async function get<T>(path: string): Promise<APIResponse<T>> {
   const res = await fetch(`${BASE_URL}${path}`)
-  return res.json()
+  const json = await res.json() as APIResponse<T>
+  if (!json.success) console.warn(`[api] GET ${path} failed`, json.error)
+  return json
 }
 
 async function put<T>(path: string, body: unknown): Promise<APIResponse<T>> {
@@ -29,7 +33,9 @@ async function put<T>(path: string, body: unknown): Promise<APIResponse<T>> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
-  return res.json()
+  const json = await res.json() as APIResponse<T>
+  if (!json.success) console.warn(`[api] PUT ${path} failed`, json.error)
+  return json
 }
 
 export const fetchDevices = () =>
@@ -43,6 +49,9 @@ export const optimizeSitePlan = (devices: ConfiguredDevice[], objective: Optimiz
 
 export const optimizeMaxPower = (targetAreaSqFt: number) =>
   post<SitePlanData>('/api/optimize-power', { targetAreaSqFt })
+
+export const planForEnergy = (targetMWh: number, objective: OptimizationObjective) =>
+  post<SitePlanData>('/api/plan-for-energy', { targetMWh, objective })
 
 export const createSession = (name: string, devices: ConfiguredDevice[], objective?: OptimizationObjective, sitePlan?: SitePlanData) =>
   post<SessionData>('/api/sessions', { name, devices, objective: objective ?? 'min_area', sitePlan })

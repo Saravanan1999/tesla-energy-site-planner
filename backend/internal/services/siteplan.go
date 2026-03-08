@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log/slog"
 	"math"
 	"sort"
 
@@ -15,7 +16,7 @@ const (
 	sideClearanceFt         = 2
 	rowAisleFt              = 5
 	transformerBufferFt     = 10
-	maxUsableWidthFt        = 100
+	maxUsableWidthFt        = 80 // total site width cap is 100 ft; 80 ft usable = 100 − 2×10 ft perimeter
 	safetyVersion           = "1.0"
 	batteriesPerTransformer = 2
 
@@ -23,6 +24,10 @@ const (
 	transformerWidthFt  = 10
 	transformerHeightFt = 10
 	transformerCost     = 50000
+
+	// Input caps — prevent runaway DP table sizes and binary search ranges.
+	maxPlanMWh      = 500.0    // max energy target accepted by plan-for-energy and optimize
+	maxPlanAreaSqFt = 100000   // max area target accepted by optimize-power (≈ 2.3 acres)
 )
 
 type deviceSpec struct {
@@ -35,11 +40,12 @@ type deviceSpec struct {
 }
 
 type SitePlanService struct {
-	db *sql.DB
+	db  *sql.DB
+	log *slog.Logger
 }
 
 func NewSitePlanService(db *sql.DB) *SitePlanService {
-	return &SitePlanService{db: db}
+	return &SitePlanService{db: db, log: slog.Default()}
 }
 
 func (s *SitePlanService) Generate(ctx context.Context, req models.GenerateSitePlanRequest) (*models.SitePlanData, *models.APIError) {
@@ -71,6 +77,7 @@ func (s *SitePlanService) Generate(ctx context.Context, req models.GenerateSiteP
 
 		spec, err := s.lookupDevice(ctx, cd.ID)
 		if err != nil {
+			s.log.Error("failed to look up device", "device_id", cd.ID, "err", err)
 			return nil, &models.APIError{Code: models.ErrorInternal, Message: "failed to look up device"}
 		}
 		if spec == nil {
@@ -377,9 +384,207 @@ func packRows(devices []deviceSpec, zone models.LayoutZone, startX, startY, usab
 	return allItems, endY, nil
 }
 
-// Optimize finds the best single-battery-type replacement plan for the given objective.
-// It generates a real layout (including transformer costs) for each candidate battery type
-// and returns the plan only if it genuinely improves on the current plan's metrics.
+// fetchBatteryCatalog returns all battery device specs from the DB.
+func (s *SitePlanService) fetchBatteryCatalog(ctx context.Context) ([]deviceSpec, *models.APIError) {
+	dbRows, err := s.db.QueryContext(ctx,
+		`SELECT id, name, width_ft, height_ft, energy_mwh, cost FROM devices WHERE category = 'battery'`,
+	)
+	if err != nil {
+		s.log.Error("failed to fetch device catalog", "err", err)
+		return nil, &models.APIError{Code: models.ErrorInternal, Message: "failed to fetch devices"}
+	}
+	defer dbRows.Close()
+
+	var catalog []deviceSpec
+	for dbRows.Next() {
+		var d deviceSpec
+		if err := dbRows.Scan(&d.id, &d.name, &d.widthFt, &d.heightFt, &d.energyMWh, &d.cost); err != nil {
+			s.log.Error("failed to scan device row", "err", err)
+			return nil, &models.APIError{Code: models.ErrorInternal, Message: "failed to read devices"}
+		}
+		catalog = append(catalog, d)
+	}
+	if err := dbRows.Err(); err != nil {
+		s.log.Error("failed to iterate device catalog", "err", err)
+		return nil, &models.APIError{Code: models.ErrorInternal, Message: "failed to iterate devices"}
+	}
+	return catalog, nil
+}
+
+// dpEnergyStep is the MWh resolution used for DP bucket indexing.
+// All current catalog devices have integer MWh values, so 1 MWh steps are exact.
+const dpEnergyStep = 1.0
+
+// dpK is the maximum number of candidates kept per energy bucket during DP pruning.
+const dpK = 20
+
+// dpCandidate tracks one partial battery mix in the DP table.
+type dpCandidate struct {
+	counts    []int // count of each catalog battery type (indexed by catalog position)
+	cost      int
+	footprint int // sum of widthFt × heightFt over all batteries (layout-agnostic proxy)
+}
+
+func cloneDPCandidate(c dpCandidate) dpCandidate {
+	nc := dpCandidate{counts: make([]int, len(c.counts)), cost: c.cost, footprint: c.footprint}
+	copy(nc.counts, c.counts)
+	return nc
+}
+
+func dpCountsEqual(a, b []int) bool {
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func dpTotalDevices(counts []int) int {
+	n := 0
+	for _, c := range counts {
+		n += c
+	}
+	return n
+}
+
+// dpCandidateWorse returns true if a is a worse partial candidate than b for the given objective.
+func dpCandidateWorse(a, b dpCandidate, obj models.OptimizationObjective) bool {
+	switch obj {
+	case models.ObjectiveMinCost:
+		if a.cost != b.cost {
+			return a.cost > b.cost
+		}
+		if a.footprint != b.footprint {
+			return a.footprint > b.footprint
+		}
+	default: // min_area: footprint is the primary proxy
+		if a.footprint != b.footprint {
+			return a.footprint > b.footprint
+		}
+		if a.cost != b.cost {
+			return a.cost > b.cost
+		}
+	}
+	return dpTotalDevices(a.counts) > dpTotalDevices(b.counts)
+}
+
+// dpInsert adds nc to bucket, deduplicating by counts and evicting the worst when over K.
+func dpInsert(bucket *[]dpCandidate, nc dpCandidate, K int, obj models.OptimizationObjective) {
+	for _, c := range *bucket {
+		if dpCountsEqual(c.counts, nc.counts) {
+			return
+		}
+	}
+	*bucket = append(*bucket, nc)
+	if len(*bucket) <= K {
+		return
+	}
+	worstIdx := 0
+	for i := 1; i < len(*bucket); i++ {
+		if dpCandidateWorse((*bucket)[i], (*bucket)[worstIdx], obj) {
+			worstIdx = i
+		}
+	}
+	(*bucket)[worstIdx] = (*bucket)[len(*bucket)-1]
+	*bucket = (*bucket)[:len(*bucket)-1]
+}
+
+// bestPlanForEnergy uses an unbounded-knapsack DP over energy levels to generate all
+// feasible battery mixes within the tolerance window, then evaluates each with the layout
+// engine and returns the best result for the given objective.
+// Returns nil if no candidate fits within the energy tolerance window.
+func (s *SitePlanService) bestPlanForEnergy(ctx context.Context, targetEnergy float64, objective models.OptimizationObjective, catalog []deviceSpec) *models.SitePlanData {
+	// Build the DP table. Each bucket e holds the top-K candidate mixes whose total
+	// energy equals e × dpEnergyStep MWh.
+	upperBound := targetEnergy + 0.05 + dpEnergyStep
+	nBuckets := int(math.Ceil(upperBound/dpEnergyStep)) + 1
+
+	dp := make([][]dpCandidate, nBuckets)
+	dp[0] = []dpCandidate{{counts: make([]int, len(catalog))}}
+
+	for e := 0; e < nBuckets; e++ {
+		if len(dp[e]) == 0 {
+			continue
+		}
+		for ti, t := range catalog {
+			if t.energyMWh <= 0 {
+				continue
+			}
+			tBuckets := int(math.Round(t.energyMWh / dpEnergyStep))
+			nextE := e + tBuckets
+			if nextE >= nBuckets {
+				continue
+			}
+			for _, c := range dp[e] {
+				nc := cloneDPCandidate(c)
+				nc.counts[ti]++
+				nc.cost += t.cost
+				nc.footprint += t.widthFt * t.heightFt
+				dpInsert(&dp[nextE], nc, dpK, objective)
+			}
+		}
+	}
+
+	// Collect all candidates whose energy lands in the tolerance window [target-0.05, target+0.05].
+	// A symmetric ±0.05 MWh window covers only floating-point rounding; it intentionally does NOT
+	// allow under-delivery of whole battery units. The previous 1% lower bound was too wide —
+	// for a 483 MWh target it allowed 478 MWh candidates, causing min_cost to repeatedly suggest
+	// plans with less energy at lower cost, creating an infinite improvement loop.
+	loBucket := int(math.Floor((targetEnergy - 0.05) / dpEnergyStep))
+	hiBucket := int(math.Ceil((targetEnergy + 0.05) / dpEnergyStep))
+	if loBucket < 0 {
+		loBucket = 0
+	}
+	if hiBucket >= nBuckets {
+		hiBucket = nBuckets - 1
+	}
+
+	var bestPlan *models.SitePlanData
+	bestMetric := math.MaxFloat64
+
+	for ei := loBucket; ei <= hiBucket; ei++ {
+		for _, c := range dp[ei] {
+			var devs []models.ConfiguredDevice
+			totalE := 0.0
+			for ti, cnt := range c.counts {
+				if cnt > 0 {
+					devs = append(devs, models.ConfiguredDevice{ID: catalog[ti].id, Quantity: cnt})
+					totalE += float64(cnt) * catalog[ti].energyMWh
+				}
+			}
+			if len(devs) == 0 {
+				continue
+			}
+			// Guard: recheck exact energy (floating-point accumulation may drift slightly).
+			if totalE > targetEnergy+0.05 || totalE < targetEnergy-0.05 {
+				continue
+			}
+			plan, err := s.Generate(ctx, models.GenerateSitePlanRequest{Devices: devs, Objective: objective})
+			if err != nil {
+				continue
+			}
+			var metric float64
+			switch objective {
+			case models.ObjectiveMinArea:
+				metric = float64(plan.Metrics.BoundingAreaSqFt)
+			case models.ObjectiveMinCost:
+				metric = float64(plan.Metrics.TotalCost)
+			default:
+				continue
+			}
+			if bestPlan == nil || metric < bestMetric {
+				bestPlan = plan
+				bestMetric = metric
+			}
+		}
+	}
+
+	return bestPlan
+}
+
+// Optimize finds the best replacement plan for the given objective by searching both
+// single-type homogeneous configurations and two-type mixed configurations.
 // Returns nil if the current plan is already optimal.
 func (s *SitePlanService) Optimize(ctx context.Context, req models.GenerateSitePlanRequest) (*models.SitePlanData, *models.APIError) {
 	objective := req.Objective
@@ -387,7 +592,6 @@ func (s *SitePlanService) Optimize(ctx context.Context, req models.GenerateSiteP
 		objective = models.ObjectiveMinArea
 	}
 
-	// Generate current plan to establish baseline metrics
 	currentPlan, apiErr := s.Generate(ctx, req)
 	if apiErr != nil {
 		return nil, apiErr
@@ -398,166 +602,238 @@ func (s *SitePlanService) Optimize(ctx context.Context, req models.GenerateSiteP
 		return nil, nil
 	}
 
-	// Fetch all battery types from catalog
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, name, width_ft, height_ft, energy_mwh, cost FROM devices WHERE category = 'battery'`,
-	)
-	if err != nil {
-		return nil, &models.APIError{Code: models.ErrorInternal, Message: "failed to fetch devices"}
-	}
-	defer rows.Close()
+	s.log.Info("optimize", "objective", objective, "target_energy_mwh", targetEnergy)
 
-	var catalog []deviceSpec
-	for rows.Next() {
-		var d deviceSpec
-		if err := rows.Scan(&d.id, &d.name, &d.widthFt, &d.heightFt, &d.energyMWh, &d.cost); err != nil {
-			return nil, &models.APIError{Code: models.ErrorInternal, Message: "failed to read devices"}
-		}
-		catalog = append(catalog, d)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, &models.APIError{Code: models.ErrorInternal, Message: "failed to iterate devices"}
+	catalog, apiErr := s.fetchBatteryCatalog(ctx)
+	if apiErr != nil {
+		return nil, apiErr
 	}
 
-	// Find the globally best single-device plan for this objective at the given energy.
-	// We track the raw metric (area or cost) so the result is independent of the current plan —
-	// for a given total MWh, there is exactly one global optimum per objective.
-	var bestPlan *models.SitePlanData
-	bestMetric := math.MaxFloat64
-
-	for _, d := range catalog {
-		if d.energyMWh <= 0 {
-			continue
-		}
-
-		// Try floor and ceil quantities; pick whichever yields energy closest to target.
-		qFloor := int(math.Floor(targetEnergy / d.energyMWh))
-		qCeil := qFloor + 1
-		qty := qFloor
-		if qFloor > 0 {
-			eFloor := float64(qFloor) * d.energyMWh
-			eCeil := float64(qCeil) * d.energyMWh
-			if math.Abs(eCeil-targetEnergy) < math.Abs(eFloor-targetEnergy) {
-				qty = qCeil
-			}
-		} else {
-			qty = qCeil
-		}
-		if qty <= 0 {
-			continue
-		}
-		candidateEnergy := float64(qty) * d.energyMWh
-		// Energy must not exceed target (never add power, 0.05 MWh float tolerance),
-		// and can decrease by at most 1%.
-		if candidateEnergy > targetEnergy+0.05 || candidateEnergy < targetEnergy*0.99 {
-			continue
-		}
-
-		plan, apiErr := s.Generate(ctx, models.GenerateSitePlanRequest{
-			Devices:   []models.ConfiguredDevice{{ID: d.id, Quantity: qty}},
-			Objective: objective,
-		})
-		if apiErr != nil {
-			continue
-		}
-
-		var metric float64
-		switch objective {
-		case models.ObjectiveMinArea:
-			metric = float64(plan.Metrics.BoundingAreaSqFt)
-		case models.ObjectiveMinCost:
-			metric = float64(plan.Metrics.TotalCost)
-		default:
-			continue
-		}
-		if bestPlan == nil || metric < bestMetric {
-			bestPlan = plan
-			bestMetric = metric
-		}
-	}
-
+	bestPlan := s.bestPlanForEnergy(ctx, targetEnergy, objective, catalog)
 	if bestPlan == nil {
+		s.log.Info("optimize result: no improvement found", "objective", objective)
 		return nil, nil
 	}
 	// Return nil when the current plan is already at or better than the global optimum.
-	// The frontend treats a nil response as "already optimal".
 	if objectiveImprovement(objective, bestPlan.Metrics, currentPlan.Metrics) <= 0 {
+		s.log.Info("optimize result: already optimal", "objective", objective)
 		return nil, nil
 	}
+	s.log.Info("optimize result: improved",
+		"objective", objective,
+		"area_sqft", bestPlan.Metrics.BoundingAreaSqFt,
+		"cost", bestPlan.Metrics.TotalCost,
+		"energy_mwh", bestPlan.Metrics.TotalEnergyMWh,
+	)
 	return bestPlan, nil
 }
 
-// OptimizeMaxPower finds the device type and quantity that maximises total energy within
-// the given site area. Among plans with equal (or near-equal) energy, the cheapest is preferred.
-func (s *SitePlanService) OptimizeMaxPower(ctx context.Context, targetAreaSqFt int) (*models.SitePlanData, *models.APIError) {
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, name, width_ft, height_ft, energy_mwh, cost FROM devices WHERE category = 'battery'`,
-	)
-	if err != nil {
-		return nil, &models.APIError{Code: models.ErrorInternal, Message: "failed to fetch devices"}
+// PlanForEnergy finds the best plan that achieves targetMWh for the given objective
+// by searching single-type and two-type combinations across the full device catalog.
+// Returns nil (no error) when no combination can reach the target within tolerance.
+func (s *SitePlanService) PlanForEnergy(ctx context.Context, targetMWh float64, objective models.OptimizationObjective) (*models.SitePlanData, *models.APIError) {
+	if targetMWh <= 0 {
+		return nil, &models.APIError{Code: models.ErrorInvalidConfig, Message: "targetMWh must be positive"}
 	}
-	defer rows.Close()
-
-	var catalog []deviceSpec
-	for rows.Next() {
-		var d deviceSpec
-		if err := rows.Scan(&d.id, &d.name, &d.widthFt, &d.heightFt, &d.energyMWh, &d.cost); err != nil {
-			return nil, &models.APIError{Code: models.ErrorInternal, Message: "failed to read devices"}
+	if targetMWh > maxPlanMWh {
+		return nil, &models.APIError{
+			Code:    models.ErrorInvalidConfig,
+			Message: fmt.Sprintf("targetMWh %.0f exceeds the maximum supported value of %.0f MWh", targetMWh, maxPlanMWh),
 		}
-		catalog = append(catalog, d)
 	}
-	if err := rows.Err(); err != nil {
-		return nil, &models.APIError{Code: models.ErrorInternal, Message: "failed to iterate devices"}
+	if objective == "" {
+		objective = models.ObjectiveMinArea
+	}
+
+	s.log.Info("plan-for-energy", "target_mwh", targetMWh, "objective", objective)
+
+	catalog, apiErr := s.fetchBatteryCatalog(ctx)
+	if apiErr != nil {
+		return nil, apiErr
+	}
+
+	plan := s.bestPlanForEnergy(ctx, targetMWh, objective, catalog)
+	if plan != nil {
+		s.log.Info("plan-for-energy result", "energy_mwh", plan.Metrics.TotalEnergyMWh, "area_sqft", plan.Metrics.BoundingAreaSqFt)
+	} else {
+		s.log.Info("plan-for-energy result: no plan found", "target_mwh", targetMWh)
+	}
+	return plan, nil
+}
+
+// isBetterMaxPowerPlan returns true if candidate beats current best (more energy, or same energy at lower cost).
+func isBetterMaxPowerPlan(candidate, best *models.SitePlanData) bool {
+	if best == nil {
+		return true
+	}
+	if candidate.Metrics.TotalEnergyMWh > best.Metrics.TotalEnergyMWh {
+		return true
+	}
+	return math.Abs(candidate.Metrics.TotalEnergyMWh-best.Metrics.TotalEnergyMWh) < 0.01 &&
+		candidate.Metrics.TotalCost < best.Metrics.TotalCost
+}
+
+// OptimizeMaxPower finds the battery mix that maximises total energy within the given site area.
+//
+// Phase 1 — single-type binary search: for each device type, find the maximum quantity
+// that fits within targetAreaSqFt. This establishes the initial best plan and a tight
+// energy ceiling for the DP.
+//
+// Phase 2 — DP-based mixed-type search: an unbounded-knapsack DP is built up to
+// maxSingleTypeEnergy × 1.2 (mixed types can fill row-end gaps but cannot significantly
+// exceed single-type packing density). The DP table is then scanned from highest energy
+// downward; only multi-type candidates with footprint ≤ targetAreaSqFt are evaluated.
+// The scan stops as soon as no higher-energy plan is possible.
+//
+// Among plans with equal (within 0.01 MWh) energy, the cheapest is preferred.
+func (s *SitePlanService) OptimizeMaxPower(ctx context.Context, targetAreaSqFt int) (*models.SitePlanData, *models.APIError) {
+	if targetAreaSqFt > maxPlanAreaSqFt {
+		return nil, &models.APIError{
+			Code:    models.ErrorInvalidConfig,
+			Message: fmt.Sprintf("targetAreaSqFt %d exceeds the maximum supported value of %d sq ft", targetAreaSqFt, maxPlanAreaSqFt),
+		}
+	}
+
+	s.log.Info("optimize-max-power", "target_area_sqft", targetAreaSqFt)
+
+	catalog, apiErr := s.fetchBatteryCatalog(ctx)
+	if apiErr != nil {
+		return nil, apiErr
 	}
 
 	var bestPlan *models.SitePlanData
+	maxSingleEnergy := 0.0
 
+	// Phase 1: single-type binary search.
 	for _, d := range catalog {
 		if d.widthFt <= 0 || d.heightFt <= 0 || d.energyMWh <= 0 {
 			continue
 		}
-		// Upper bound: fill target area twice over (ignoring margins) — gives a safe binary-search ceiling.
 		hiQty := targetAreaSqFt/(d.widthFt*d.heightFt)*2 + 10
-		if hiQty <= 0 {
-			continue
-		}
-
-		// Binary search: find the maximum quantity of this device type that still fits.
-		lo, hi, maxFitting := 1, hiQty, 0
+		lo, hi, maxFit := 1, hiQty, 0
 		for lo <= hi {
 			mid := (lo + hi) / 2
-			plan, apiErr := s.Generate(ctx, models.GenerateSitePlanRequest{
+			plan, err := s.Generate(ctx, models.GenerateSitePlanRequest{
 				Devices:   []models.ConfiguredDevice{{ID: d.id, Quantity: mid}},
-				Objective: models.ObjectiveMinArea, // pack as tight as possible
+				Objective: models.ObjectiveMinArea,
 			})
-			if apiErr != nil || plan.Metrics.BoundingAreaSqFt > targetAreaSqFt {
+			if err != nil || plan.Metrics.BoundingAreaSqFt > targetAreaSqFt {
 				hi = mid - 1
 			} else {
-				maxFitting = mid
+				maxFit = mid
 				lo = mid + 1
 			}
 		}
-		if maxFitting <= 0 {
+		if maxFit <= 0 {
 			continue
 		}
-
-		plan, apiErr := s.Generate(ctx, models.GenerateSitePlanRequest{
-			Devices:   []models.ConfiguredDevice{{ID: d.id, Quantity: maxFitting}},
+		plan, err := s.Generate(ctx, models.GenerateSitePlanRequest{
+			Devices:   []models.ConfiguredDevice{{ID: d.id, Quantity: maxFit}},
 			Objective: models.ObjectiveMinArea,
 		})
-		if apiErr != nil {
+		if err != nil {
 			continue
 		}
-
-		// Primary: maximise energy. Tiebreaker: minimise cost.
-		if bestPlan == nil ||
-			plan.Metrics.TotalEnergyMWh > bestPlan.Metrics.TotalEnergyMWh ||
-			(math.Abs(plan.Metrics.TotalEnergyMWh-bestPlan.Metrics.TotalEnergyMWh) < 0.01 &&
-				plan.Metrics.TotalCost < bestPlan.Metrics.TotalCost) {
+		if plan.Metrics.TotalEnergyMWh > maxSingleEnergy {
+			maxSingleEnergy = plan.Metrics.TotalEnergyMWh
+		}
+		if isBetterMaxPowerPlan(plan, bestPlan) {
 			bestPlan = plan
 		}
 	}
 
+	// Phase 2: DP-based mixed-type search.
+	// Mixed types cannot pack significantly more energy than single-type; the 1.2× buffer
+	// covers the case where filling row-end gaps with smaller devices gains a few extra units.
+	maxE := int(math.Ceil(maxSingleEnergy*1.2)) + 5
+	if maxE <= 0 {
+		return bestPlan, nil
+	}
+	nBuckets := int(math.Ceil(float64(maxE)/dpEnergyStep)) + 2
+
+	dp := make([][]dpCandidate, nBuckets)
+	dp[0] = []dpCandidate{{counts: make([]int, len(catalog))}}
+	for e := 0; e < nBuckets; e++ {
+		if len(dp[e]) == 0 {
+			continue
+		}
+		for ti, t := range catalog {
+			if t.energyMWh <= 0 {
+				continue
+			}
+			tBuckets := int(math.Round(t.energyMWh / dpEnergyStep))
+			nextE := e + tBuckets
+			if nextE >= nBuckets {
+				continue
+			}
+			for _, c := range dp[e] {
+				nc := cloneDPCandidate(c)
+				nc.counts[ti]++
+				nc.cost += t.cost
+				nc.footprint += t.widthFt * t.heightFt
+				dpInsert(&dp[nextE], nc, dpK, models.ObjectiveMinArea)
+			}
+		}
+	}
+
+	// Scan from highest energy downward. Skip:
+	//  - single-type candidates (Phase 1 already found their optimal quantities)
+	//  - candidates with footprint > targetAreaSqFt (definitely won't fit)
+	// Stop once the current energy bucket can't beat the best plan.
+	minEBucket := 0
+	if bestPlan != nil {
+		minEBucket = int(math.Floor(bestPlan.Metrics.TotalEnergyMWh/dpEnergyStep)) + 1
+	}
+	for e := nBuckets - 1; e >= minEBucket; e-- {
+		if len(dp[e]) == 0 {
+			continue
+		}
+		for _, c := range dp[e] {
+			if c.footprint > targetAreaSqFt {
+				continue
+			}
+			// Count distinct types; single-type mixes are already covered by Phase 1.
+			distinctTypes := 0
+			for _, cnt := range c.counts {
+				if cnt > 0 {
+					distinctTypes++
+				}
+			}
+			if distinctTypes <= 1 {
+				continue
+			}
+			var devs []models.ConfiguredDevice
+			for ti, cnt := range c.counts {
+				if cnt > 0 {
+					devs = append(devs, models.ConfiguredDevice{ID: catalog[ti].id, Quantity: cnt})
+				}
+			}
+			plan, err := s.Generate(ctx, models.GenerateSitePlanRequest{
+				Devices:   devs,
+				Objective: models.ObjectiveMinArea,
+			})
+			if err != nil || plan.Metrics.BoundingAreaSqFt > targetAreaSqFt {
+				continue
+			}
+			if isBetterMaxPowerPlan(plan, bestPlan) {
+				bestPlan = plan
+			}
+		}
+		// Update energy floor: once the bucket energy can't beat current best, stop.
+		if bestPlan != nil && float64(e)*dpEnergyStep <= bestPlan.Metrics.TotalEnergyMWh {
+			break
+		}
+	}
+
+	if bestPlan != nil {
+		s.log.Info("optimize-max-power result",
+			"energy_mwh", bestPlan.Metrics.TotalEnergyMWh,
+			"area_sqft", bestPlan.Metrics.BoundingAreaSqFt,
+			"cost", bestPlan.Metrics.TotalCost,
+		)
+	} else {
+		s.log.Info("optimize-max-power result: no plan found", "target_area_sqft", targetAreaSqFt)
+	}
 	return bestPlan, nil
 }
 

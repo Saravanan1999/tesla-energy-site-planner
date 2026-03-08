@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -13,11 +14,12 @@ import (
 )
 
 type SessionService struct {
-	db *sql.DB
+	db  *sql.DB
+	log *slog.Logger
 }
 
 func NewSessionService(db *sql.DB) *SessionService {
-	return &SessionService{db: db}
+	return &SessionService{db: db, log: slog.Default()}
 }
 
 // SessionRecord is the raw session as loaded from the DB, with devices
@@ -112,6 +114,7 @@ func (s *SessionService) Create(ctx context.Context, req models.CreateSessionReq
 		return s.insert(ctx, name, string(devicesJSON), objective, sitePlanJSON)
 	}
 	if err != nil {
+		s.log.Error("failed to check existing session", "name", name, "err", err)
 		return nil, &models.APIError{Code: models.ErrorInternal, Message: "Failed to check existing session."}
 	}
 	return s.update(ctx, existingSessionID, name, string(devicesJSON), objective, sitePlanJSON)
@@ -126,9 +129,11 @@ func (s *SessionService) insert(ctx context.Context, name, devicesJSON, objectiv
 		sessionID, name, devicesJSON, savedAt.Format(time.RFC3339), objective, sitePlanJSON,
 	)
 	if err != nil {
+		s.log.Error("failed to insert session", "name", name, "err", err)
 		return nil, &models.APIError{Code: models.ErrorInternal, Message: "Failed to save session."}
 	}
 
+	s.log.Info("session created", "session_id", sessionID, "name", name)
 	return &models.SessionData{SessionID: sessionID, Name: name, SavedAt: savedAt}, nil
 }
 
@@ -155,6 +160,7 @@ func (s *SessionService) UpdateByID(ctx context.Context, sessionID string, req m
 		return nil, &models.APIError{Code: models.ErrorInvalidConfig, Message: "Session not found."}
 	}
 	if err != nil {
+		s.log.Error("failed to verify session", "session_id", sessionID, "err", err)
 		return nil, &models.APIError{Code: models.ErrorInternal, Message: "Failed to verify session."}
 	}
 
@@ -183,9 +189,11 @@ func (s *SessionService) update(ctx context.Context, sessionID, name, devicesJSO
 		name, devicesJSON, savedAt.Format(time.RFC3339), objective, sitePlanJSON, sessionID,
 	)
 	if err != nil {
+		s.log.Error("failed to update session", "session_id", sessionID, "err", err)
 		return nil, &models.APIError{Code: models.ErrorInternal, Message: "Failed to update session."}
 	}
 
+	s.log.Info("session updated", "session_id", sessionID, "name", name)
 	return &models.SessionData{SessionID: sessionID, Name: name, SavedAt: savedAt}, nil
 }
 
@@ -194,6 +202,7 @@ func (s *SessionService) List(ctx context.Context) ([]models.SessionData, *model
 		`SELECT session_id, name, saved_at FROM sessions ORDER BY saved_at DESC`,
 	)
 	if err != nil {
+		s.log.Error("failed to query sessions", "err", err)
 		return nil, &models.APIError{Code: models.ErrorInternal, Message: "Failed to list sessions."}
 	}
 	defer rows.Close()
@@ -203,15 +212,18 @@ func (s *SessionService) List(ctx context.Context) ([]models.SessionData, *model
 		var savedAtStr string
 		var row models.SessionData
 		if err := rows.Scan(&row.SessionID, &row.Name, &savedAtStr); err != nil {
+			s.log.Error("failed to scan session row", "err", err)
 			return nil, &models.APIError{Code: models.ErrorInternal, Message: "Failed to read sessions."}
 		}
 		row.SavedAt, err = time.Parse(time.RFC3339, savedAtStr)
 		if err != nil {
+			s.log.Error("failed to parse session timestamp", "saved_at", savedAtStr, "err", err)
 			return nil, &models.APIError{Code: models.ErrorInternal, Message: "Failed to parse session timestamp."}
 		}
 		sessions = append(sessions, row)
 	}
 	if err := rows.Err(); err != nil {
+		s.log.Error("failed to iterate sessions", "err", err)
 		return nil, &models.APIError{Code: models.ErrorInternal, Message: "Failed to iterate sessions."}
 	}
 
@@ -224,12 +236,14 @@ func (s *SessionService) List(ctx context.Context) ([]models.SessionData, *model
 func (s *SessionService) DeleteByID(ctx context.Context, sessionID string) *models.APIError {
 	res, err := s.db.ExecContext(ctx, `DELETE FROM sessions WHERE session_id = ?`, sessionID)
 	if err != nil {
+		s.log.Error("failed to delete session", "session_id", sessionID, "err", err)
 		return &models.APIError{Code: models.ErrorInternal, Message: "Failed to delete session."}
 	}
 	n, _ := res.RowsAffected()
 	if n == 0 {
 		return &models.APIError{Code: models.ErrorInvalidConfig, Message: "Session not found."}
 	}
+	s.log.Info("session deleted", "session_id", sessionID)
 	return nil
 }
 
@@ -243,16 +257,19 @@ func (s *SessionService) GetByID(ctx context.Context, sessionID string) (*Sessio
 		return nil, &models.APIError{Code: models.ErrorInvalidConfig, Message: "Session not found."}
 	}
 	if err != nil {
+		s.log.Error("failed to load session", "session_id", sessionID, "err", err)
 		return nil, &models.APIError{Code: models.ErrorInternal, Message: "Failed to load session."}
 	}
 
 	savedAt, err := time.Parse(time.RFC3339, savedAtStr)
 	if err != nil {
+		s.log.Error("failed to parse session timestamp", "session_id", sessionID, "saved_at", savedAtStr, "err", err)
 		return nil, &models.APIError{Code: models.ErrorInternal, Message: "Failed to parse session timestamp."}
 	}
 
 	var devices []models.ConfiguredDevice
 	if err := json.Unmarshal([]byte(devicesJSON), &devices); err != nil {
+		s.log.Error("failed to deserialize session devices", "session_id", sessionID, "err", err)
 		return nil, &models.APIError{Code: models.ErrorInternal, Message: "Failed to deserialize session devices."}
 	}
 

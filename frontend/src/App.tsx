@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { fetchDevices, generateSitePlan, optimizeSitePlan, optimizeMaxPower, getSession, createSession, updateSession, listSessions } from './api'
+import { fetchDevices, generateSitePlan, optimizeSitePlan, optimizeMaxPower, planForEnergy, getSession, createSession, updateSession, listSessions } from './api'
 import type { Device, OptimalLayouts, OptimizationObjective, OptimizationSuggestion, SessionData, SitePlanData } from './types/api'
 
 import DeviceCatalog from './components/DeviceCatalog'
@@ -114,9 +114,9 @@ export default function App() {
           return
         }
         const plan = res.data
-        const first = plan.requestedDevices[0]
-        const dev = first ? deviceMap.get(first.id) : undefined
-        const label = dev ? `${first.quantity}× ${dev.name}` : `${first?.quantity ?? ''}×`
+        const label = plan.requestedDevices
+          .map(d => { const dev = deviceMap.get(d.id); return dev ? `${d.quantity}× ${dev.name}` : `${d.quantity}×` })
+          .join(' + ')
         setOptimalLayouts(prev => ({ ...prev, [obj]: { label, plan } }))
       })
     })
@@ -169,7 +169,7 @@ export default function App() {
           generateSitePlan(configured, initObjective).then(planRes => {
             setIsGenerating(false)
             if (planRes.success && planRes.data) setSitePlan(planRes.data)
-            else setPlanError(planRes.error?.message ?? 'Failed to restore layout.')
+            else { console.error('[app] init generateSitePlan failed', planRes.error); setPlanError(planRes.error?.message ?? 'Failed to restore layout.') }
             setDataLoaded(true)
           })
         } else {
@@ -216,6 +216,7 @@ export default function App() {
           manualSnapshotRef.current = null
         }
       } else {
+        console.error('[app] generateSitePlan failed', res.error)
         setPlanError(res.error?.message ?? 'Failed to generate layout.')
         setSitePlan(null)
       }
@@ -238,6 +239,7 @@ export default function App() {
       : await createSession(siteName.trim(), configured, saveObjective, sitePlan ?? undefined)
     setIsSaving(false)
     if (!res.success) {
+      console.error('[app] save session failed', res.error)
       setSaveError(res.error?.details?.[0] ?? res.error?.message ?? 'Failed to save.')
     } else {
       if (res.data?.sessionId) setCurrentSessionId(res.data.sessionId)
@@ -254,6 +256,7 @@ export default function App() {
     setLoadingSplash(true)
     setLoadingSplashFading(false)
     const res = await getSession(sessionId)
+    if (!res.success) console.error('[app] getSession failed', { sessionId }, res.error)
     if (res.success && res.data) {
       const { name, requestedDevices, metrics, layout, safetyAssumptions, warnings, objective: sessionObjective } = res.data
       setSitePlan({ requestedDevices, metrics, layout, safetyAssumptions, warnings, objective: sessionObjective })
@@ -291,7 +294,7 @@ export default function App() {
     const res = await generateSitePlan(configured, obj)
     setIsGenerating(false)
     if (res.success && res.data) setSitePlan(res.data)
-    else { setPlanError(res.error?.message ?? 'Failed to generate layout.'); setSitePlan(null) }
+    else { console.error('[app] objective change generateSitePlan failed', res.error); setPlanError(res.error?.message ?? 'Failed to generate layout.'); setSitePlan(null) }
   }
 
   const handleApplySuggestion = async (suggestion: OptimizationSuggestion) => {
@@ -302,7 +305,7 @@ export default function App() {
       manualSnapshotRef.current = null
     }
     // Push current state onto undo stack so user can step back
-    setAppliedSnapshots(prev => [...prev, { quantities: { ...quantities }, label: `${suggestion.toQty}× ${suggestion.toLabel}`, type: 'apply' as const }])
+    setAppliedSnapshots(prev => [...prev, { quantities: { ...quantities }, label: suggestion.toLabel, type: 'apply' as const }])
     // Full replacement: algorithm computed the optimal mix, override everything
     const next = suggestion.newQuantities
       ? { ...suggestion.newQuantities }
@@ -326,7 +329,7 @@ export default function App() {
     const res = await generateSitePlan(configured, applyObjective)
     setIsGenerating(false)
     if (res.success && res.data) { setSitePlan(res.data); setIsDirty(true) }
-    else { setPlanError(res.error?.message ?? 'Failed to generate layout.'); setSitePlan(null) }
+    else { console.error('[app] apply suggestion generateSitePlan failed', res.error); setPlanError(res.error?.message ?? 'Failed to generate layout.'); setSitePlan(null) }
   }
 
   const handleRevert = async () => {
@@ -346,43 +349,35 @@ export default function App() {
     const res = await generateSitePlan(configured, revertObjective)
     setIsGenerating(false)
     if (res.success && res.data) { setSitePlan(res.data); setIsDirty(true) }
-    else { setPlanError(res.error?.message ?? 'Failed to restore layout.'); setSitePlan(null) }
+    else { console.error('[app] revert generateSitePlan failed', res.error); setPlanError(res.error?.message ?? 'Failed to restore layout.'); setSitePlan(null) }
   }
 
   const handleTargetMWhChange = async (targetMWh: number) => {
-    if (!sitePlan || targetMWh <= 0) return
-    const currentMWh = sitePlan.metrics.totalEnergyMWh
-    if (currentMWh <= 0) return
+    if (targetMWh <= 0) return
 
-    // Scale each device quantity proportionally to hit the new target
-    const scale = targetMWh / currentMWh
-    const next: Record<number, number> = {}
-    for (const [id, qty] of Object.entries(quantities)) {
-      next[Number(id)] = Math.max(1, Math.round((qty as number) * scale))
-    }
-
-    const configured = Object.entries(next)
-      .filter(([, q]) => q > 0)
-      .map(([id, quantity]) => ({ id: Number(id), quantity: quantity as number }))
-    if (configured.length === 0) return
-
-    setLoadingSplash(true)
-    setLoadingSplashFading(false)
     setIsGenerating(true)
     setPlanError(null)
     clearTimeout(debounceRef.current)
     manualSnapshotRef.current = null
+    setOptimalLayouts({}) // show in-panel loading text while computing
 
     const planObjective = objectiveRef.current === 'user_plan' ? 'min_area' : objectiveRef.current
-    const res = await generateSitePlan(configured, planObjective)
+
+    // Ask the backend to find the best device combination that achieves targetMWh.
+    // This searches the full catalog (single-type and two-type mixes) so it can
+    // find cross-type solutions that proportional scaling would miss (e.g. 7 MWh
+    // via 1× Megapack XL + 1× Megapack 2 instead of 7× PowerPack).
+    const res = await planForEnergy(targetMWh, planObjective)
     setIsGenerating(false)
-    setTimeout(() => setLoadingSplashFading(true), 600)
-    setTimeout(() => setLoadingSplash(false), 1000)
 
     if (res.success && res.data) {
       const achievedMWh = res.data.metrics.totalEnergyMWh
+      // Derive the new quantities from the plan's requestedDevices.
+      const next: Record<number, number> = Object.fromEntries(
+        res.data.requestedDevices.map(d => [d.id, d.quantity])
+      )
       if (Math.abs(achievedMWh - targetMWh) > 0.1) {
-        // Can't hit the exact target — ask for consent before applying
+        // Nearest achievable differs — ask for consent before applying.
         setPendingTargetPlan({ plan: res.data, quantities: next, requestedMWh: targetMWh })
       } else {
         setQuantities(next)
@@ -390,6 +385,7 @@ export default function App() {
         setAppliedSnapshots([])
       }
     } else {
+      console.error('[app] planForEnergy failed', { targetMWh }, res.error)
       setPlanError(res.error?.message ?? 'Failed to generate layout.')
     }
   }
@@ -437,6 +433,7 @@ export default function App() {
       .map(([id, quantity]) => ({ id: Number(id), quantity }))
     const saveObjective = objective === 'user_plan' ? 'min_area' : objective
     const res = await createSession(newName, configured, saveObjective, sitePlan ?? undefined)
+    if (!res.success) console.error('[app] saveAs createSession failed', { name: newName }, res.error)
     if (res.success) {
       refreshSessionNames()
       setToastLabel(newName)

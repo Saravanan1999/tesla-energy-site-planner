@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import type {
   OptimalEntry, OptimalLayouts, OptimizationObjective, OptimizationSuggestion,
   SessionData, SitePlanData,
@@ -25,6 +25,9 @@ interface Props {
   onConfirmTargetPlan: () => void
   onCancelTargetPlan: () => void
 }
+
+const MAX_TARGET_MWH = 500
+const MAX_TARGET_AREA_SQFT = 100_000
 
 const OBJECTIVES: { id: Exclude<OptimizationObjective, 'user_plan'>; label: string; description: string }[] = [
   { id: 'min_area', label: 'Smallest Site', description: 'Smallest site footprint at fixed total MWh' },
@@ -139,6 +142,12 @@ export default function OptimizationPanel({
   constraintMode, onConstraintModeChange, targetAreaSqFt, onTargetAreaChange, optimalMaxPower,
   pendingTargetPlan, onConfirmTargetPlan, onCancelTargetPlan,
 }: Props) {
+  const [loadingDots, setLoadingDots] = useState('.')
+  useEffect(() => {
+    const id = setInterval(() => setLoadingDots(d => d.length >= 3 ? '.' : d + '.'), 500)
+    return () => clearInterval(id)
+  }, [])
+
   const [open, setOpen] = useState(false)
   const [saveAsOpen, setSaveAsOpen] = useState(false)
   const [saveAsName, setSaveAsName] = useState('')
@@ -162,8 +171,10 @@ export default function OptimizationPanel({
 
   const commitMWh = () => {
     setEditingMWh(false)
-    const val = parseFloat(mwhInput)
-    if (!isNaN(val) && val > 0 && Math.abs(val - sitePlan.metrics.totalEnergyMWh) > 0.05) {
+    let val = parseFloat(mwhInput)
+    if (isNaN(val) || val <= 0) return
+    if (val > MAX_TARGET_MWH) val = MAX_TARGET_MWH
+    if (Math.abs(val - sitePlan.metrics.totalEnergyMWh) > 0.05) {
       onTargetMWhChange(val)
     }
   }
@@ -175,8 +186,10 @@ export default function OptimizationPanel({
 
   const commitArea = () => {
     setEditingArea(false)
-    const val = parseInt(areaInput, 10)
-    if (!isNaN(val) && val > 0 && val !== targetAreaSqFt) {
+    let val = parseInt(areaInput, 10)
+    if (isNaN(val) || val <= 0) return
+    if (val > MAX_TARGET_AREA_SQFT) val = MAX_TARGET_AREA_SQFT
+    if (val !== targetAreaSqFt) {
       onTargetAreaChange(val)
     }
   }
@@ -338,9 +351,12 @@ export default function OptimizationPanel({
                 <span className="flex items-center gap-1">
                   <input
                     autoFocus
-                    type="number" min="0.1" step="0.1"
+                    type="number" min="0.1" max={MAX_TARGET_MWH} step="0.1"
                     value={mwhInput}
-                    onChange={e => setMwhInput(e.target.value)}
+                    onChange={e => {
+                      const num = parseFloat(e.target.value)
+                      setMwhInput(!isNaN(num) && num > MAX_TARGET_MWH ? String(MAX_TARGET_MWH) : e.target.value)
+                    }}
                     onBlur={commitMWh}
                     onKeyDown={e => { if (e.key === 'Enter') commitMWh(); if (e.key === 'Escape') setEditingMWh(false) }}
                     className="w-32 bg-gray-900 text-blue-300 text-sm font-medium px-2 py-1 rounded outline-none"
@@ -353,6 +369,7 @@ export default function OptimizationPanel({
                     className="w-6 h-6 flex items-center justify-center rounded bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition-colors shrink-0"
                     title="Confirm"
                   >✓</button>
+                  <span className="text-[9px] text-gray-600">max {MAX_TARGET_MWH} MWh</span>
                 </span>
               ) : (
                 <button onClick={startEditingMWh} title="Click to change target energy"
@@ -365,9 +382,12 @@ export default function OptimizationPanel({
                 <span className="flex items-center gap-1">
                   <input
                     autoFocus
-                    type="number" min="100" step="100"
+                    type="number" min="100" max={MAX_TARGET_AREA_SQFT} step="100"
                     value={areaInput}
-                    onChange={e => setAreaInput(e.target.value)}
+                    onChange={e => {
+                      const num = parseInt(e.target.value, 10)
+                      setAreaInput(!isNaN(num) && num > MAX_TARGET_AREA_SQFT ? String(MAX_TARGET_AREA_SQFT) : e.target.value)
+                    }}
                     onBlur={commitArea}
                     onKeyDown={e => { if (e.key === 'Enter') commitArea(); if (e.key === 'Escape') setEditingArea(false) }}
                     className="w-36 bg-gray-900 text-blue-300 text-sm font-medium px-2 py-1 rounded outline-none"
@@ -380,6 +400,7 @@ export default function OptimizationPanel({
                     className="w-6 h-6 flex items-center justify-center rounded bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition-colors shrink-0"
                     title="Confirm"
                   >✓</button>
+                  <span className="text-[9px] text-gray-600">max {MAX_TARGET_AREA_SQFT.toLocaleString()} sq ft</span>
                 </span>
               ) : (
                 <button onClick={startEditingArea} title="Click to change target area"
@@ -445,7 +466,7 @@ export default function OptimizationPanel({
 
         {/* Suggestion — power mode */}
         {constraintMode === 'power' && (() => {
-          if (optEntry === undefined) return <p className="text-[11px] text-gray-600 italic">Finding the best layout…</p>
+          if (optEntry === undefined) return <p className="text-[11px] text-gray-600 italic">Finding the best layout{loadingDots}</p>
           if (optEntry === null) return <p className="text-[11px] text-gray-600 italic">{activeObjective === 'min_area' ? 'This layout is already the most space-efficient for your goal.' : 'This layout is already the most cost-efficient for your goal.'}</p>
           const dm = optEntry.plan.metrics
           const cm = sitePlan.metrics
@@ -525,7 +546,7 @@ export default function OptimizationPanel({
 
         {/* Suggestion — area mode */}
         {constraintMode === 'area' && (() => {
-          if (optimalMaxPower === undefined) return <p className="text-[11px] text-gray-600 italic">Finding the best layout for your area…</p>
+          if (optimalMaxPower === undefined) return <p className="text-[11px] text-gray-600 italic">Finding the best layout for your area{loadingDots}</p>
           if (optimalMaxPower === null) return <p className="text-[11px] text-gray-600 italic">No devices fit within this area.</p>
           const om = optimalMaxPower.metrics
           const cm = sitePlan.metrics

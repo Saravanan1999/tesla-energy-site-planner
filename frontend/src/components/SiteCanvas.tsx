@@ -14,6 +14,7 @@ interface Props {
 }
 
 const SCALE = 6 // px per foot
+const MAX_STAGGER_MS = 800 // total stagger window cap — prevents overlap with large (200+) layouts
 
 function TransformerIcon() {
   const tabs = [10, 21, 33, 44]
@@ -286,15 +287,16 @@ export default function SiteCanvas({ sitePlan, isLoading, error, onRemove, siteN
           const bOld = newFlipMap.get(b.id)!
           return aOld.y !== bOld.y ? aOld.y - bOld.y : aOld.x - bOld.x
         })
+      const removeStep = staggerOrder.length > 1 ? Math.min(70, Math.floor(MAX_STAGGER_MS / staggerOrder.length)) : 70
       staggerOrder.forEach((item, idx) => {
         const entry = newFlipMap.get(item.id)!
-        newFlipMap.set(item.id, { ...entry, delay: idx * 70 })
+        newFlipMap.set(item.id, { ...entry, delay: idx * removeStep })
       })
       flipMapRef.current = newFlipMap
 
       // Total time for all FLIP animations after Phase 2 renders:
       // last stagger delay + 520ms (0.5s transition + buffer)
-      const maxFlipDelay = staggerOrder.length > 0 ? (staggerOrder.length - 1) * 70 + 550 : 0
+      const maxFlipDelay = staggerOrder.length > 0 ? (staggerOrder.length - 1) * removeStep + 550 : 0
 
       setDisplayLayout(prevLayout)
       setExitingIds(new Set(removedIds))
@@ -315,12 +317,13 @@ export default function SiteCanvas({ sitePlan, isLoading, error, onRemove, siteN
         // If all/most items are new (e.g. session load), play grow animation
         if (addedItems.length > 0) {
           const sortedNew = [...addedItems].sort(sortFn2)
+          const sessionStep = sortedNew.length > 1 ? Math.min(70, Math.floor(MAX_STAGGER_MS / sortedNew.length)) : 0
           const newGrowDelayMap = new Map<string, number>()
-          sortedNew.forEach((item, idx) => newGrowDelayMap.set(item.id, idx * 70))
+          sortedNew.forEach((item, idx) => newGrowDelayMap.set(item.id, idx * sessionStep))
           growDelayMapRef.current = newGrowDelayMap
           if (animTimerRef.current) clearTimeout(animTimerRef.current)
           setAnimatingIds(new Set(addedItems.map(i => i.id)))
-          const totalDuration = 900 + (sortedNew.length - 1) * 70
+          const totalDuration = 900 + Math.max(0, (sortedNew.length - 1) * sessionStep)
           animTimerRef.current = setTimeout(() => {
             setAnimatingIds(new Set())
             growDelayMapRef.current = new Map()
@@ -356,20 +359,22 @@ export default function SiteCanvas({ sitePlan, isLoading, error, onRemove, siteN
         // Within each zone: bottommost old position first so each item clears space above it
         return aPrev.yFt !== bPrev.yFt ? bPrev.yFt - aPrev.yFt : aPrev.xFt - bPrev.xFt
       })
+      const moveStep = sortedMoved.length > 1 ? Math.min(70, Math.floor(MAX_STAGGER_MS / sortedMoved.length)) : (sortedMoved.length === 1 ? 70 : 0)
       const newSlideDelayMap = new Map<string, number>()
-      sortedMoved.forEach((item, idx) => newSlideDelayMap.set(item.id, idx * 70))
+      sortedMoved.forEach((item, idx) => newSlideDelayMap.set(item.id, idx * moveStep))
       slideDelayMapRef.current = newSlideDelayMap
 
       // New items grow in after all moves, top→bottom (topmost freed slot first).
-      const moveOffset = sortedMoved.length * 70
+      const moveOffset = sortedMoved.length * moveStep
       const sortedNew = [...addedItems].sort((a, b) => a.yFt !== b.yFt ? a.yFt - b.yFt : a.xFt - b.xFt)
+      const newStep = sortedNew.length > 1 ? Math.min(70, Math.floor(MAX_STAGGER_MS / sortedNew.length)) : 0
       const newGrowDelayMap = new Map<string, number>()
-      sortedNew.forEach((item, idx) => newGrowDelayMap.set(item.id, moveOffset + idx * 70))
+      sortedNew.forEach((item, idx) => newGrowDelayMap.set(item.id, moveOffset + idx * newStep))
       growDelayMapRef.current = newGrowDelayMap
 
       if (animTimerRef.current) clearTimeout(animTimerRef.current)
       setAnimatingIds(new Set(addedItems.map(i => i.id)))
-      const totalDuration = moveOffset + 900 + (sortedNew.length - 1) * 70
+      const totalDuration = moveOffset + 900 + Math.max(0, (sortedNew.length - 1) * newStep)
       animTimerRef.current = setTimeout(() => {
         setAnimatingIds(new Set())
         growDelayMapRef.current = new Map()
@@ -517,11 +522,15 @@ export default function SiteCanvas({ sitePlan, isLoading, error, onRemove, siteN
       ctx.fillText(`ROW AISLE — ${sa.rowAisleFt} ft`, W / 2, aT + aH / 2)
     })
 
-    // ── Battery row labels ────────────────────────────────────────────────
-    batteryRowYs.forEach((yFt, idx) => {
-      ctx.fillStyle = 'rgba(255,255,255,0.18)'; ctx.font = 'bold 8px system-ui,sans-serif'
-      ctx.textAlign = 'left'; ctx.textBaseline = 'top'
-      ctx.fillText(`BATTERY ROW ${idx + 1}`, pm + 4, yFt * S + 3)
+    // ── Battery row bands (drawn under blocks) ───────────────────────────
+    batteryRowYs.forEach((yFt) => {
+      const rowH = (batteryItems.find(i => i.yFt === yFt)?.heightFt ?? 0) * S
+      if (rowH <= 0) return
+      const rY = yFt * S
+      ctx.fillStyle = 'rgba(59,130,246,0.06)'
+      ctx.fillRect(0, rY, W, rowH)
+      ctx.strokeStyle = 'rgba(59,130,246,0.25)'; ctx.lineWidth = 1; ctx.setLineDash([])
+      ctx.beginPath(); ctx.moveTo(0, rY); ctx.lineTo(W, rY); ctx.stroke()
     })
 
     // ── Layout items ──────────────────────────────────────────────────────
@@ -558,6 +567,24 @@ export default function SiteCanvas({ sitePlan, isLoading, error, onRemove, siteN
         ctx.fillText(label, x + w / 2, y + h - 3, w - 8)
       }
     }
+
+    // ── Battery row labels (drawn on top of blocks) ───────────────────────
+    batteryRowYs.forEach((yFt, idx) => {
+      const rowH = (batteryItems.find(i => i.yFt === yFt)?.heightFt ?? 0) * S
+      if (rowH <= 0) return
+      const rY = yFt * S
+      const rowLabel = `BATTERY ROW ${idx + 1}`
+      ctx.font = 'bold 9px system-ui,sans-serif'
+      const tw = ctx.measureText(rowLabel).width
+      // Pill sits in the left perimeter strip, vertically centred on the row
+      const ph = 16, pw = tw + 16
+      const px2 = 6
+      const py2 = rY + rowH / 2 - ph / 2
+      ctx.fillStyle = 'rgba(15,23,42,0.82)'; ctx.beginPath(); ctx.roundRect(px2, py2, pw, ph, 3); ctx.fill()
+      ctx.strokeStyle = 'rgba(59,130,246,0.6)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.roundRect(px2, py2, pw, ph, 3); ctx.stroke()
+      ctx.fillStyle = '#93c5fd'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle'
+      ctx.fillText(rowLabel, px2 + 8, py2 + ph / 2)
+    })
 
     // ── Site border ───────────────────────────────────────────────────────
     ctx.strokeStyle = 'rgba(71,85,105,0.5)'; ctx.lineWidth = 1.5; ctx.setLineDash([])
@@ -1069,7 +1096,7 @@ export default function SiteCanvas({ sitePlan, isLoading, error, onRemove, siteN
               <div className="absolute pointer-events-none" style={{ top: -16, left: 0, width: displayedW, display: 'flex', alignItems: 'center' }}>
                 <span style={{ fontSize: 9, color: '#475569', lineHeight: 1, flexShrink: 0 }}>|</span>
                 <div style={line} />
-                <span style={{ fontSize: 8, color: '#64748b', padding: '0 5px', whiteSpace: 'nowrap', lineHeight: 1, flexShrink: 0 }}>max width: 100 ft (current: {metrics.siteWidthFt} ft)</span>
+                <span style={{ fontSize: 8, color: '#64748b', padding: '0 5px', whiteSpace: 'nowrap', lineHeight: 1, flexShrink: 0 }}>total site width: {metrics.siteWidthFt} ft / {safetyAssumptions.maxUsableWidthFt + 2 * safetyAssumptions.perimeterMarginFt} ft max</span>
                 <div style={line} />
                 <span style={{ fontSize: 9, color: '#475569', lineHeight: 1, flexShrink: 0 }}>|</span>
               </div>

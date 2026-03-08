@@ -499,3 +499,49 @@ func TestOptimizeMaxPower_DBError(t *testing.T) {
 		t.Fatal("expected error for closed DB in OptimizeMaxPower")
 	}
 }
+
+// --------------- Multi-type optimization ---------------
+
+func TestOptimize_MultiType_ProducesValidPlan(t *testing.T) {
+	svc := newSitePlanSvc(t)
+	// Mixed baseline: Megapack XL (id=1, 4MWh) + PowerPack (id=4, 1MWh) = 5 MWh total.
+	// The optimizer searches both single-type and two-type combinations for 5 MWh.
+	plan, apiErr := svc.Optimize(context.Background(), models.GenerateSitePlanRequest{
+		Devices: []models.ConfiguredDevice{
+			{ID: 1, Quantity: 1},
+			{ID: 4, Quantity: 1},
+		},
+		Objective: models.ObjectiveMinArea,
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected error: %+v", apiErr)
+	}
+	// Result may be nil (baseline already optimal) or a better plan — both are valid.
+	if plan != nil {
+		if plan.Metrics.BoundingAreaSqFt <= 0 {
+			t.Error("expected positive area in multi-type optimized plan")
+		}
+		if plan.Metrics.TotalEnergyMWh <= 0 {
+			t.Error("expected positive energy in multi-type optimized plan")
+		}
+	}
+}
+
+func TestOptimize_MultiType_MinCost(t *testing.T) {
+	svc := newSitePlanSvc(t)
+	// 2x Megapack XL = 8 MWh at high cost — optimizer should find cheaper 2-type alternatives.
+	plan, apiErr := svc.Optimize(context.Background(), models.GenerateSitePlanRequest{
+		Devices:   []models.ConfiguredDevice{{ID: 1, Quantity: 2}},
+		Objective: models.ObjectiveMinCost,
+	})
+	if apiErr != nil {
+		t.Fatalf("unexpected error: %+v", apiErr)
+	}
+	if plan != nil {
+		// Any improved plan must cost less than the baseline.
+		baseline := 2*120000 + 1*50000 // 2 Megapack XL + 1 transformer
+		if plan.Metrics.TotalCost >= baseline {
+			t.Errorf("expected improved plan to cost less than baseline %d, got %d", baseline, plan.Metrics.TotalCost)
+		}
+	}
+}
