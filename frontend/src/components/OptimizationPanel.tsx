@@ -302,7 +302,7 @@ export default function OptimizationPanel({
       {open && <>
 
       {/* Main row */}
-      <div className="flex items-center gap-5 overflow-x-auto px-4 py-2.5">
+      <div className="flex flex-col md:flex-row md:items-center gap-4 md:gap-5 px-4 py-2.5">
 
         {/* Mode + constraint input */}
         <div className="shrink-0">
@@ -312,7 +312,7 @@ export default function OptimizationPanel({
               {/* Mode toggle: Required Energy Capacity / Available Land Area */}
               {(['power', 'area'] as const).map(mode => {
                 const selected = constraintMode === mode
-                const label = mode === 'power' ? 'Required Energy Capacity' : 'Available Land Area'
+                const label = mode === 'power' ? 'Energy Capacity' : 'Land Area'
                 return (
                   <button
                     key={mode}
@@ -429,7 +429,7 @@ export default function OptimizationPanel({
           </div>
         )}
 
-        <div className="shrink-0 self-stretch w-px bg-gray-800" />
+        <div className="hidden md:block shrink-0 self-stretch w-px bg-gray-800" />
 
         {/* Suggestion — power mode */}
         {constraintMode === 'power' && (() => {
@@ -444,7 +444,7 @@ export default function OptimizationPanel({
           const reason = buildReason(activeObjective, optEntry, sitePlan)
           return (
             <div className="flex flex-col gap-1.5 min-w-0">
-              <div className="flex items-center gap-4">
+              <div className="flex flex-wrap items-center gap-2 md:gap-4">
                 <div className="shrink-0">
                   <p className="text-[10px] text-gray-500 uppercase tracking-widest mb-0.5">Global optimum</p>
                   <p className="text-xs text-white leading-tight">
@@ -524,7 +524,7 @@ export default function OptimizationPanel({
           if (isCurrentOptimal) return <p className="text-[11px] text-gray-600 italic">Layout already maximises power within this area.</p>
           const suggestion = entryToSuggestion({ label: first ? `${first.quantity}× units` : 'optimal', plan: optimalMaxPower }, sitePlan)
           return (
-            <div className="flex items-center gap-4 min-w-0">
+            <div className="flex flex-wrap items-center gap-2 md:gap-4 min-w-0">
               <div className="shrink-0">
                 <p className="text-[10px] text-gray-500 uppercase tracking-widest mb-0.5">Max power layout</p>
                 <p className="text-xs text-white leading-tight">
@@ -546,7 +546,7 @@ export default function OptimizationPanel({
                   </span>
                 )}
               </div>
-              <p className="text-[10px] text-gray-500 shrink-0 max-w-xs">
+              <p className="text-[10px] text-gray-500 max-w-xs">
                 {`Fits ${om.totalEnergyMWh.toFixed(1)} MWh (${om.totalBatteryCount} batteries, ${om.requiredTransformers} transformers) within ${targetAreaSqFt.toLocaleString()} sq ft — total cost ${fmtCost(om.totalCost)}.`}
               </p>
               <button
