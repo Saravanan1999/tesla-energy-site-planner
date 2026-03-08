@@ -1,6 +1,6 @@
 # Tesla Energy Site Planner
 
-A site planning tool for utility-scale battery storage projects. Pick from available Tesla Energy devices (Megapack, Powerpack,..) to construct a compliant site layout - or provide a land area or energy target and let the planner find the mix that best fits your requirements.
+A site planning tool for utility-scale battery storage projects. Pick from available Tesla Energy devices (Megapack, PowerPack, etc.) to generate a compliant site layout, or provide an energy target or land-area budget and let the planner find the best-fitting mix.
 
 > **New here?** Start below to get the app running, then see [DESIGN.md](DESIGN.md) for a full technical deep-dive.
 
@@ -12,6 +12,13 @@ A site planning tool for utility-scale battery storage projects. Pick from avail
 - Provide a land area or energy target to find the device mix that best fits your requirements
 - Save and restore your layout plans
 - Export the canvas to PNG or PDF
+
+---
+
+## Stack
+
+- **Frontend:** React, TypeScript, Vite, Tailwind CSS
+- **Backend:** Go, net/http, SQLite
 
 ---
 
@@ -94,7 +101,8 @@ cd backend && go test ./internal/... -coverprofile=coverage.out && go tool cover
 cd frontend && npm run test:coverage
 ```
 
-Current backend coverage: **database 94.4% · handlers 92.0% · services 90.4%**
+Backend coverage: 90%+ across all services, handlers, and database layers. 
+Frontend coverage: 90%+ on all statements and branches.
 
 ---
 
