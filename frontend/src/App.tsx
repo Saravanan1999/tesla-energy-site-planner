@@ -48,12 +48,16 @@ export default function App() {
     quantities: Record<number, number>
     requestedMWh: number
   } | null>(null)
-  const [isDirty, setIsDirty] = useState(false)
+  const [isDirty, setIsDirty] = useState(() => localStorage.getItem('draft_isDirty') === 'true')
   const [confirmNew, setConfirmNew] = useState(false)
 
   useEffect(() => {
     localStorage.setItem('draft_quantities', JSON.stringify(quantities))
   }, [quantities])
+
+  useEffect(() => {
+    localStorage.setItem('draft_isDirty', String(isDirty))
+  }, [isDirty])
 
   useEffect(() => {
     localStorage.setItem('draft_siteName', siteName)
