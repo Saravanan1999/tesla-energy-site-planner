@@ -302,12 +302,12 @@ export default function OptimizationPanel({
       {open && <>
 
       {/* Main row */}
-      <div className="flex flex-col md:flex-row md:items-center gap-4 md:gap-5 px-4 py-2.5">
+      <div className="flex flex-col items-center md:flex-row md:items-center gap-4 md:gap-5 px-4 py-2.5">
 
         {/* Mode + constraint input */}
         <div className="shrink-0">
           <p className="text-[10px] text-gray-500 uppercase tracking-widest mb-1.5">Design Based On</p>
-          <div className="flex flex-col items-start gap-2">
+          <div className="flex flex-col items-center md:items-start gap-2">
             <div className="flex items-center gap-1 flex-wrap">
               {/* Mode toggle: Required Energy Capacity / Available Land Area */}
               {(['power', 'area'] as const).map(mode => {
