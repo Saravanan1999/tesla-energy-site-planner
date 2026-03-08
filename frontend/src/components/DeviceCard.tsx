@@ -1,11 +1,10 @@
 import type { Device } from '../types/api'
 import InfoTooltip from './InfoTooltip'
 
-const MAX_PLAN_MWH = 500 // must match backend maxPlanMWh and OptimizationPanel MAX_TARGET_MWH
-
 interface Props {
   device: Device
   quantity: number
+  maxQty: number
   onChange: (qty: number) => void
 }
 
@@ -47,9 +46,8 @@ function DeviceIcon({ device }: { device: Device }) {
   )
 }
 
-export default function DeviceCard({ device, quantity, onChange }: Props) {
+export default function DeviceCard({ device, quantity, maxQty, onChange }: Props) {
   const isActive = quantity > 0
-  const maxQty = device.energyMWh > 0 ? Math.floor(MAX_PLAN_MWH / device.energyMWh) : 999
   const atLimit = quantity >= maxQty
 
   return (
@@ -110,7 +108,7 @@ export default function DeviceCard({ device, quantity, onChange }: Props) {
       </div>
       {atLimit && (
         <p className="mt-1.5 text-[10px] text-amber-400/80">
-          Max {maxQty} units — {MAX_PLAN_MWH} MWh optimization limit reached
+          500 MWh total limit reached — remove other devices to add more.
         </p>
       )}
     </div>

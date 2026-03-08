@@ -27,7 +27,7 @@ interface Props {
 }
 
 const MAX_TARGET_MWH = 500
-const MAX_TARGET_AREA_SQFT = 100_000
+const MAX_TARGET_AREA_SQFT = 200_000
 
 const OBJECTIVES: { id: Exclude<OptimizationObjective, 'user_plan'>; label: string; description: string }[] = [
   { id: 'min_area', label: 'Smallest Site', description: 'Smallest site footprint at fixed total MWh' },

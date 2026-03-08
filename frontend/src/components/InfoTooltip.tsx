@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useLayoutEffect } from 'react'
+import { createPortal } from 'react-dom'
 
 interface Props {
   children: React.ReactNode
@@ -6,17 +7,27 @@ interface Props {
   position?: 'top' | 'bottom'
 }
 
-export default function InfoTooltip({ children, align = 'center', position = 'top' }: Props) {
+interface TooltipStyle {
+  top?: number
+  bottom?: number
+  left: number
+  maxWidth: number
+}
+
+export default function InfoTooltip({ children }: Props) {
   const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
+  const anchorRef = useRef<HTMLDivElement>(null)
   const boxRef = useRef<HTMLDivElement>(null)
-  const [xOffset, setXOffset] = useState(0)
-  const [flipped, setFlipped] = useState(false)
+  const [style, setStyle] = useState<TooltipStyle | null>(null)
+  const [above, setAbove] = useState(true)
 
   useEffect(() => {
     if (!open) return
     const handler = (e: MouseEvent | TouchEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+      if (
+        anchorRef.current && !anchorRef.current.contains(e.target as Node) &&
+        boxRef.current && !boxRef.current.contains(e.target as Node)
+      ) setOpen(false)
     }
     document.addEventListener('mousedown', handler)
     document.addEventListener('touchstart', handler)
@@ -26,64 +37,67 @@ export default function InfoTooltip({ children, align = 'center', position = 'to
     }
   }, [open])
 
-  // Reset on close
-  useEffect(() => { if (!open) { setXOffset(0); setFlipped(false) } }, [open])
+  useEffect(() => { if (!open) setStyle(null) }, [open])
 
-  // After render: clamp horizontally and flip vertically if needed.
+  // Position the tooltip after it renders using viewport coordinates.
   useLayoutEffect(() => {
-    if (!open || !boxRef.current) return
-    const rect = boxRef.current.getBoundingClientRect()
+    if (!open || !anchorRef.current || !boxRef.current) return
+    const anchor = anchorRef.current.getBoundingClientRect()
+    const box = boxRef.current.getBoundingClientRect()
     const vw = window.innerWidth
     const MARGIN = 8
+    const GAP = 6
 
-    // Horizontal correction
-    if (rect.right > vw - MARGIN) {
-      setXOffset(-(rect.right - (vw - MARGIN)))
-    } else if (rect.left < MARGIN) {
-      setXOffset(MARGIN - rect.left)
+    // Decide above/below based on available space
+    const spaceAbove = anchor.top - MARGIN
+    const spaceBelow = window.innerHeight - anchor.bottom - MARGIN
+    const showAbove = spaceAbove >= box.height || spaceAbove >= spaceBelow
+
+    // Horizontal: center on anchor, clamp within viewport
+    let left = anchor.left + anchor.width / 2 - box.width / 2
+    left = Math.max(MARGIN, Math.min(vw - MARGIN - box.width, left))
+
+    const next: TooltipStyle = { left, maxWidth: vw - MARGIN * 2 }
+    if (showAbove) {
+      next.bottom = window.innerHeight - anchor.top + GAP
+    } else {
+      next.top = anchor.bottom + GAP
     }
+    setAbove(showAbove)
+    setStyle(next)
+  }, [open])
 
-    // Flip vertically if tooltip clips the top of the viewport
-    if (rect.top < MARGIN) {
-      setFlipped(true)
-    }
-  }, [open, flipped])
-
-  const effectivePos = flipped ? (position === 'top' ? 'bottom' : 'top') : position
-  const tooltipPos = effectivePos === 'top' ? 'bottom-full mb-2' : 'top-full mt-2'
-  const tooltipAnchor =
-    align === 'left' ? 'left-0' :
-    align === 'right' ? 'right-0' :
-    'left-1/2 -translate-x-1/2'
-  const arrowAlign =
-    align === 'left' ? 'left-3' :
-    align === 'right' ? 'right-3' :
-    'left-1/2 -translate-x-1/2'
-  const arrowPos = effectivePos === 'top'
-    ? 'top-full border-r border-b -mt-1'
-    : 'bottom-full border-l border-t -mb-1'
-
-  const style: React.CSSProperties = {}
-  if (xOffset !== 0) style.transform = `translateX(${xOffset}px)`
+  const arrowLeft = anchorRef.current
+    ? Math.max(6, Math.min(
+        (style?.maxWidth ?? 200) - 14,
+        anchorRef.current.getBoundingClientRect().left +
+          anchorRef.current.getBoundingClientRect().width / 2 -
+          (style?.left ?? 0) - 4
+      ))
+    : 8
 
   return (
-    <div ref={ref} className="relative shrink-0" onClick={e => { e.stopPropagation(); setOpen(v => !v) }}>
+    <div ref={anchorRef} className="relative shrink-0" onClick={e => { e.stopPropagation(); setOpen(v => !v) }}>
       <svg
         className="w-3 h-3 text-gray-600 hover:text-gray-400 cursor-pointer transition-colors"
         fill="currentColor" viewBox="0 0 20 20"
       >
         <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a.75.75 0 000 1.5h.253a.25.25 0 01.244.304l-.459 2.066A1.75 1.75 0 0010.747 15H11a.75.75 0 000-1.5h-.253a.25.25 0 01-.244-.304l.459-2.066A1.75 1.75 0 009.253 9H9z" clipRule="evenodd" />
       </svg>
-      {open && (
-        <div className={`absolute ${tooltipPos} ${tooltipAnchor} z-50 pointer-events-none`} style={style}>
+      {open && createPortal(
+        <div
+          ref={boxRef}
+          className="fixed z-[9999] bg-gray-800 border border-gray-600 rounded-lg px-2.5 py-1.5 text-xs text-gray-300 shadow-xl w-max max-w-[200px] pointer-events-none"
+          style={style ? { top: style.top, bottom: style.bottom, left: style.left, maxWidth: style.maxWidth } : { visibility: 'hidden', top: 0, left: 0 }}
+        >
+          {children}
+          {/* Arrow */}
           <div
-            ref={boxRef}
-            className="bg-gray-800 border border-gray-600 rounded-lg px-2.5 py-1.5 text-xs text-gray-300 shadow-xl w-max max-w-[200px]"
-          >
-            {children}
-            <div className={`absolute ${arrowPos} ${arrowAlign} w-2 h-2 bg-gray-800 border-gray-600 rotate-45`} />
-          </div>
-        </div>
+            className={`absolute w-2 h-2 bg-gray-800 border-gray-600 rotate-45 ${above ? 'top-full border-r border-b -mt-1' : 'bottom-full border-l border-t -mb-1'}`}
+            style={{ left: arrowLeft }}
+          />
+        </div>,
+        document.body
       )}
     </div>
   )
