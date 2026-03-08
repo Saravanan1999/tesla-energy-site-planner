@@ -523,7 +523,6 @@ export default function OptimizationPanel({
           const isCurrentOptimal = Math.abs(deltaEnergy) < 0.01 && Math.abs(deltaCost) < 1
           if (isCurrentOptimal) return <p className="text-[11px] text-gray-600 italic">Layout already maximises power within this area.</p>
           const suggestion = entryToSuggestion({ label: first ? `${first.quantity}× units` : 'optimal', plan: optimalMaxPower }, sitePlan)
-          const label = first ? `${first.quantity}× units` : 'optimal'
           return (
             <div className="flex items-center gap-4 min-w-0">
               <div className="shrink-0">
