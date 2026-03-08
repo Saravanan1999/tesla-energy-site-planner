@@ -1,210 +1,140 @@
-# tesla-energy-site-planner
+# Tesla Energy Site Planner
 
-A full-stack Tesla Energy site planning tool built with React + TypeScript (frontend) and Go (backend).
+A tool for planning Tesla Energy installations. Draw a site, pick devices (Megapack, Powerpack, Megacharger), and let the planner find the optimal layout and energy mix.
 
-## Project Structure
+> **New here?** Start below to get the app running, then see [DESIGN.md](DESIGN.md) for a full technical deep-dive.
 
-```
-tesla-energy-site-planner/
-├── frontend/   # React + TypeScript (Vite)
-└── backend/    # Go HTTP API
-```
+---
+
+## What it does
+
+- Generates a 2D site layout that fits your land constraints
+- Optimizes device selection to hit an energy target or maximize power
+- Saves and restores named sessions
+- Exports the canvas to PNG or PDF
+
+---
 
 ## Prerequisites
 
-- [Node.js](https://nodejs.org/) v20+
-- [Go](https://go.dev/) v1.21+
-- `make` (pre-installed on macOS/Linux)
+| Tool | Version |
+|------|---------|
+| [Node.js](https://nodejs.org/) | v20+ |
+| [Go](https://go.dev/) | v1.21+ |
+| `make` | pre-installed on macOS/Linux |
 
-## Getting Started
+---
 
-### One command (recommended)
-
-Starts the backend and frontend together. Press `Ctrl+C` to stop both.
+## Quickstart
 
 ```bash
 make dev
 ```
 
-- Frontend: `http://localhost:8000`
-- Backend API: `http://localhost:8080`
+That's it. This installs frontend dependencies and starts both services.
 
-### Individually
+| Service | URL |
+|---------|-----|
+| App (frontend) | http://localhost:8000 |
+| API (backend) | http://localhost:8080 |
+
+Press `Ctrl+C` to stop both.
+
+### Run services individually
 
 ```bash
-make backend    # backend only  → http://localhost:8080
-make frontend   # frontend only → http://localhost:8000
+make backend    # API only  → http://localhost:8080
+make frontend   # App only  → http://localhost:8000
 ```
 
-Or without `make`:
+---
 
-```bash
-# backend
-cd backend && go run ./cmd/server
+## Environment variables
 
-# frontend
-cd frontend && npm install && npm run dev
-```
+**No setup needed for local development.** The frontend defaults to `localhost:8080` when no env file is present.
 
-## Optimization Algorithms
-
-See [ALGORITHMS.md](ALGORITHMS.md) for a full description of all three optimization modes:
-
-- **Minimize site area** — given a fixed total power target
-- **Minimize cost** — given a fixed total power target
-- **Maximize power** — given a fixed site area
-
-## API Endpoints
-
-| Method | Path                     | Description              |
-|--------|--------------------------|--------------------------|
-| GET    | /api/health              | Health check             |
-| GET    | /api/devices             | List available devices   |
-| POST   | /api/site-plan           | Generate a site plan     |
-| POST   | /api/optimize            | Optimize a site plan     |
-| POST   | /api/optimize-power      | Maximize power for area  |
-| GET    | /api/sessions            | List saved sessions      |
-| POST   | /api/sessions            | Create a session         |
-| GET    | /api/sessions/{id}       | Get a session            |
-| PUT    | /api/sessions/{id}       | Update a session         |
-| DELETE | /api/sessions/{id}       | Delete a session         |
-
-## Environment Variables
-
-### Frontend
-
-All `.env` files are **gitignored**. Only `frontend/.env.example` is committed.
-
-For local development, copy the example file:
+Only create a `.env` file if you need to change something. Use `frontend/.env.example` as a reference:
 
 ```bash
 cp frontend/.env.example frontend/.env
 ```
 
-| File | Committed | Purpose |
-|------|-----------|---------|
-| `.env.example` | Yes | Documents all variables with defaults — copy to `.env` to get started |
-| `.env` | No | Local defaults — overrides nothing else, safe for non-secret values |
-| `.env.local` | No | Personal overrides — highest priority, never shared |
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `VITE_APP_ENV` | `local` | `local` → `localhost:8080`; `prod` → Render deployment |
+| `VITE_API_URL` | _(derived)_ | Override the backend URL directly, ignoring `VITE_APP_ENV` |
 
-#### Available variables
-
-| Variable | Values | Default | Description |
-|----------|--------|---------|-------------|
-| `VITE_APP_ENV` | `local` \| `prod` | `local` | Selects the backend target |
-| `VITE_API_URL` | any URL | _(derived from `VITE_APP_ENV`)_ | Override the backend URL directly, ignoring `VITE_APP_ENV` |
-
-#### Backend targets
-
-| `VITE_APP_ENV` | Backend URL |
-|----------------|-------------|
-| `local` _(default)_ | `http://localhost:8080` |
-| `prod` | `https://tesla-energy-site-planner.onrender.com` |
-
-#### Pointing a local frontend at the production backend
-
-Create `frontend/.env.local` with:
+To point your local frontend at the production backend, create `frontend/.env.local` with:
 
 ```env
 VITE_APP_ENV=prod
 ```
 
-This is gitignored and takes highest priority without touching any committed file.
+This file is gitignored and takes highest priority.
 
-#### Deploying to Render
-
-Vite embeds `VITE_*` variables into the JS bundle **at build time**. Set `VITE_APP_ENV=prod` in Render's **Environment** settings for your frontend service. Render exposes it to the build process automatically, so no `.env` file is needed on the server.
+---
 
 ## Testing
 
-### Backend
-
-Run all tests:
-
 ```bash
-cd backend
-go test ./internal/...
+# Backend
+cd backend && go test ./internal/...
+
+# Frontend
+cd frontend && npm test
 ```
 
-Run with coverage report (file by file):
+For coverage:
 
 ```bash
-cd backend
-go test ./internal/... -coverprofile=coverage.out
-go tool cover -func=coverage.out
+# Backend (outputs to terminal)
+cd backend && go test ./internal/... -coverprofile=coverage.out && go tool cover -func=coverage.out | grep total:
+
+# Frontend (HTML report in frontend/coverage/)
+cd frontend && npm run test:coverage
 ```
 
-Show total coverage only:
+Current backend coverage: **database 94.4% · handlers 92.0% · services 90.4%**
+
+---
+
+## Building for production
 
 ```bash
-go test ./internal/... -coverprofile=coverage.out && go tool cover -func=coverage.out | grep total:
+# Frontend — output in frontend/dist/
+cd frontend && npm run build
+
+# Backend — outputs binary to backend/bin/server
+cd backend && go build -o bin/server ./cmd/server && ./bin/server
 ```
 
-View an HTML coverage report in your browser:
+---
 
-```bash
-go tool cover -html=coverage.out
+## Project structure
+
+```
+tesla-energy-site-planner/
+├── backend/        # Go HTTP API (stdlib only + SQLite)
+│   ├── cmd/server/ # Entry point
+│   └── internal/   # handlers, services, database
+├── frontend/       # React + TypeScript (Vite)
+│   └── src/
+│       ├── components/   # SiteCanvas, OptimizationPanel, …
+│       ├── api/          # API client functions
+│       └── types/        # TypeScript interfaces
+├── DESIGN.md       # Full technical reference
+└── Makefile
 ```
 
-Current coverage (all packages >90%):
+---
 
-| Package                  | Coverage |
-|--------------------------|----------|
-| internal/database        | 94.4%    |
-| internal/handlers        | 92.0%    |
-| internal/services        | 90.4%    |
+## Learn more
 
-### Frontend
+See [DESIGN.md](DESIGN.md) for the complete technical reference, including:
 
-Run all tests:
-
-```bash
-cd frontend
-npm test
-```
-
-Run with coverage report:
-
-```bash
-cd frontend
-npm run test:coverage
-```
-
-Coverage output is printed to the terminal. An HTML report is generated in `frontend/coverage/` and can be opened in a browser:
-
-```bash
-open frontend/coverage/index.html
-```
-
-Current coverage (111 tests across 9 test files):
-
-| File                         | Statements | Branches | Functions | Lines  |
-|------------------------------|------------|----------|-----------|--------|
-| api/client.ts                | 100%       | 100%     | 100%      | 100%   |
-| api/index.ts                 | 100%       | 87.5%    | 100%      | 100%   |
-| components/DeviceCard        | 100%       | 100%     | 80%       | 100%   |
-| components/DeviceCatalog     | 100%       | 100%     | 100%      | 100%   |
-| components/InfoTooltip       | 100%       | 100%     | 100%      | 100%   |
-| components/MetricsPanel      | 100%       | 100%     | 100%      | 100%   |
-| components/OptimizationPanel | 99.36%     | 90.3%    | 70%       | 99.36% |
-| components/ResumeModal       | 100%       | 100%     | 75%       | 100%   |
-| **All files**                | **99.65%** | **93.57%** | **81.25%** | **99.65%** |
-
-## Building for Production
-
-### Frontend
-
-```bash
-cd frontend
-npm run build
-```
-
-Output is in `frontend/dist/`. The build automatically uses `VITE_APP_ENV=prod` (via `.env.production`).
-
-### Backend
-
-```bash
-cd backend
-go build -o bin/server ./cmd/server
-./bin/server
-```
+- System architecture and database schema
+- All REST API endpoints
+- Layout engine (how devices are packed onto the canvas)
+- Optimization algorithms (knapsack DP, FFD bin-packing)
+- Frontend animation system
+- Key engineering tradeoffs

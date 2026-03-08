@@ -1,6 +1,7 @@
 # Tesla Energy Site Planner — Design Document
 
 > A technical reference for the full system: how it works, how it's built, and why key decisions were made.
+> Looking to just run the app? See [README.md](README.md) for setup and quickstart.
 
 ---
 
@@ -14,6 +15,7 @@
 6. [Layout Engine](#6-layout-engine)
 7. [Optimization Algorithms](#7-optimization-algorithms)
 8. [Frontend](#8-frontend)
+9. [Tradeoffs](#9-tradeoffs)
 
 ---
 
