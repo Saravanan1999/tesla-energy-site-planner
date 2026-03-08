@@ -307,8 +307,8 @@ export default function OptimizationPanel({
         {/* Mode + constraint input */}
         <div className="shrink-0">
           <p className="text-[10px] text-gray-500 uppercase tracking-widest mb-1.5">Design Based On</p>
-          <div className="flex flex-col items-center gap-2">
-            <div className="flex items-center gap-1">
+          <div className="flex flex-col items-start gap-2">
+            <div className="flex items-center gap-1 flex-wrap">
               {/* Mode toggle: Required Energy Capacity / Available Land Area */}
               {(['power', 'area'] as const).map(mode => {
                 const selected = constraintMode === mode
@@ -343,7 +343,7 @@ export default function OptimizationPanel({
                     onChange={e => setMwhInput(e.target.value)}
                     onBlur={commitMWh}
                     onKeyDown={e => { if (e.key === 'Enter') commitMWh(); if (e.key === 'Escape') setEditingMWh(false) }}
-                    className="w-24 bg-gray-900 text-blue-300 text-sm font-medium px-2 py-1 rounded outline-none"
+                    className="w-32 bg-gray-900 text-blue-300 text-sm font-medium px-2 py-1 rounded outline-none"
                     style={{ border: '1px solid rgba(37,99,235,0.5)' }}
                   />
                   <span className="text-gray-400 text-sm">MWh</span>
@@ -364,7 +364,7 @@ export default function OptimizationPanel({
                     onChange={e => setAreaInput(e.target.value)}
                     onBlur={commitArea}
                     onKeyDown={e => { if (e.key === 'Enter') commitArea(); if (e.key === 'Escape') setEditingArea(false) }}
-                    className="w-28 bg-gray-900 text-blue-300 text-sm font-medium px-2 py-1 rounded outline-none"
+                    className="w-36 bg-gray-900 text-blue-300 text-sm font-medium px-2 py-1 rounded outline-none"
                     style={{ border: '1px solid rgba(37,99,235,0.5)' }}
                   />
                   <span className="text-gray-400 text-sm">sq ft</span>
@@ -379,7 +379,7 @@ export default function OptimizationPanel({
             </div>
             {/* Pending target plan confirmation */}
             {pendingTargetPlan && constraintMode === 'power' && (
-              <div className="mt-2 flex items-center gap-3 px-3 py-2 rounded-lg" style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)' }}>
+              <div className="mt-2 flex flex-wrap items-center gap-2 px-3 py-2 rounded-lg" style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)' }}>
                 <span className="text-[11px] text-amber-300 leading-snug">
                   <span className="font-semibold">{pendingTargetPlan.requestedMWh.toFixed(1)} MWh</span> isn't exactly achievable — nearest is <span className="font-semibold">{pendingTargetPlan.achievedMWh.toFixed(1)} MWh</span>. Apply this instead?
                 </span>
