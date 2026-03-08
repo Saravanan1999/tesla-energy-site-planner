@@ -520,41 +520,41 @@ export default function App() {
         </div>
       )}
       {/* Header */}
-      <header className="shrink-0 px-6 py-3 border-b border-gray-800 flex items-center justify-between bg-gray-950/90 backdrop-blur-sm">
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-1 opacity-80">
+      <header className="shrink-0 px-4 md:px-6 py-2 md:py-3 border-b border-gray-800 flex flex-wrap items-center justify-between gap-y-2 bg-gray-950/90 backdrop-blur-sm">
+        <div className="flex items-center gap-2 md:gap-3 min-w-0">
+          <div className="flex items-center gap-1 opacity-80 shrink-0">
             {[4, 3, 2, 1].map((h, i) => (
               <div key={i} className="w-2 bg-blue-500 rounded-sm" style={{ height: `${h * 5}px` }} />
             ))}
           </div>
-          <h1 className="text-sm font-bold text-white tracking-tight">Tesla Energy Site Planner</h1>
+          <h1 className="text-xs md:text-sm font-bold text-white tracking-tight shrink-0">Tesla Energy Site Planner</h1>
           {siteName && (
-            <span className="text-xs text-gray-500">
+            <span className="text-xs text-gray-500 truncate min-w-0">
               {siteName}{isDirty && <span className="text-amber-400 ml-0.5">*</span>}
             </span>
           )}
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1 md:gap-2">
           <button
             onClick={() => { if (isDirty && hasSelection) setConfirmNew(true); else { setLoadingSplash(true); setLoadingSplashFading(false); resetSession(); setTimeout(() => setLoadingSplashFading(true), 600); setTimeout(() => setLoadingSplash(false), 1000) } }}
-            className="px-3 py-1.5 text-xs text-gray-400 hover:text-white border border-gray-700 hover:border-gray-500 rounded-lg transition-colors"
+            className="px-2 py-1 md:px-3 md:py-1.5 text-[10px] md:text-xs text-gray-400 hover:text-white border border-gray-700 hover:border-gray-500 rounded-lg transition-colors"
           >
-            New Session
+            New
           </button>
           <button
             onClick={() => setShowResume(true)}
-            className="px-3 py-1.5 text-xs text-gray-400 hover:text-white border border-gray-700 hover:border-gray-500 rounded-lg transition-colors"
+            className="px-2 py-1 md:px-3 md:py-1.5 text-[10px] md:text-xs text-gray-400 hover:text-white border border-gray-700 hover:border-gray-500 rounded-lg transition-colors"
           >
-            Saved Sessions
+            Saved
           </button>
           <button
             onClick={handleSave}
             disabled={!hasSelection || isSaving || !!siteNameConflict}
             title={siteNameConflict ?? undefined}
-            className="px-3 py-1.5 text-xs font-medium bg-blue-600 hover:bg-blue-500 disabled:bg-gray-800 disabled:text-gray-600 text-white rounded-lg transition-colors"
+            className="px-2 py-1 md:px-3 md:py-1.5 text-[10px] md:text-xs font-medium bg-blue-600 hover:bg-blue-500 disabled:bg-gray-800 disabled:text-gray-600 text-white rounded-lg transition-colors"
           >
-            {isSaving ? 'Saving…' : isDirty ? 'Save Session *' : 'Save Session'}
+            {isSaving ? 'Saving…' : isDirty ? 'Save *' : 'Save'}
           </button>
         </div>
       </header>
@@ -562,7 +562,7 @@ export default function App() {
       {/* New Session confirmation dialog */}
       {confirmNew && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="bg-gray-900 border border-gray-700 rounded-2xl shadow-2xl p-6 w-80 flex flex-col gap-4">
+          <div className="bg-gray-900 border border-gray-700 rounded-2xl shadow-2xl p-6 w-80 max-w-[calc(100vw-2rem)] flex flex-col gap-4">
             <p className="text-sm font-semibold text-white">Start a new session?</p>
             <p className="text-xs text-gray-400">You have unsaved changes. Do you want to save the current session before starting fresh?</p>
             <div className="flex flex-col gap-2">
@@ -590,14 +590,14 @@ export default function App() {
       )}
 
       {/* Main content */}
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex-1 flex flex-col md:flex-row overflow-auto md:overflow-hidden">
         <DeviceCatalog
           devices={devices}
           quantities={quantities}
           onChange={handleQuantityChange}
         />
 
-        <main className="flex-1 flex flex-col overflow-hidden">
+        <main className="flex-1 flex flex-col overflow-hidden min-h-[600px]">
           <SiteCanvas
             sitePlan={sitePlan}
             isLoading={isGenerating}

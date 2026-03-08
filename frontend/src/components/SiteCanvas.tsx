@@ -691,7 +691,7 @@ export default function SiteCanvas({ sitePlan, isLoading, error, onRemove, siteN
 
   if (!sitePlan) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center p-12 text-center">
+      <div className="flex-1 flex flex-col items-center justify-center p-6 md:p-12 text-center">
         <div className="w-24 h-16 mb-6 flex items-center gap-1 opacity-20">
           {[4, 3, 2, 1].map((h, i) => (
             <div key={i} className="flex-1 bg-blue-400 rounded-sm" style={{ height: `${h * 14}px` }} />
@@ -710,7 +710,7 @@ export default function SiteCanvas({ sitePlan, isLoading, error, onRemove, siteN
   return (
     <div className="relative flex-1 flex flex-col overflow-hidden">
       {/* Canvas toolbar */}
-      <div className="px-4 py-2 border-b border-gray-800 flex items-center justify-between shrink-0">
+      <div className="px-3 md:px-4 py-2 border-b border-gray-800 flex items-center justify-between shrink-0 gap-2 overflow-x-auto">
         <div className="flex items-center gap-2">
           <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-widest">Site Layout</h2>
           <div className="flex flex-col">
@@ -719,16 +719,16 @@ export default function SiteCanvas({ sitePlan, isLoading, error, onRemove, siteN
               value={siteName ?? ''}
               onChange={e => onSiteNameChange?.(e.target.value)}
               placeholder="site name"
-              className={`h-6 px-2 text-xs text-gray-300 placeholder-gray-600 bg-gray-800/60 border rounded-md outline-none focus:text-white transition-colors w-36
+              className={`h-6 px-2 text-xs text-gray-300 placeholder-gray-600 bg-gray-800/60 border rounded-md outline-none focus:text-white transition-colors w-24 md:w-36
                 ${nameError ? 'border-red-500/70 focus:border-red-400' : nameWarning ? 'border-amber-500/60 focus:border-amber-400' : 'border-gray-700/60 focus:border-gray-500'}`}
             />
             {nameError && <p className="text-[10px] text-red-400 mt-0.5 whitespace-nowrap">Enter a name to save</p>}
             {!nameError && nameWarning && <p className="text-[10px] text-amber-400/80 mt-0.5 whitespace-nowrap">{nameWarning}</p>}
           </div>
         </div>
-        <div className="flex items-center gap-4 text-xs text-gray-500">
+        <div className="flex items-center gap-2 md:gap-4 text-xs text-gray-500">
           {/* Battery legend — mini battery with 2 cells + nub */}
-          <span className="flex items-center gap-1.5">
+          <span className="hidden md:flex items-center gap-1.5">
             <span className="flex items-center h-4">
               <span className="flex items-center gap-px h-3 px-0.5 rounded-sm bg-blue-900/70 border border-blue-500/60">
                 <span className="w-2.5 h-2 rounded-sm bg-blue-700/50 border border-blue-600/40 shrink-0" />
@@ -740,7 +740,7 @@ export default function SiteCanvas({ sitePlan, isLoading, error, onRemove, siteN
           </span>
 
           {/* Transformer legend — mini version of the icon */}
-          <span className="flex items-center gap-1.5">
+          <span className="hidden md:flex items-center gap-1.5">
             <span className="relative flex items-center h-4">
               <svg viewBox="0 0 60 60" className="w-6 h-4" preserveAspectRatio="xMidYMid meet">
                 <rect x="6" y="4" width="4" height="5" rx="0.8" fill="#92400e" stroke="#b45309" strokeWidth="0.8" />
@@ -759,7 +759,7 @@ export default function SiteCanvas({ sitePlan, isLoading, error, onRemove, siteN
             Transformer
           </span>
 
-          <span className="text-gray-600 border-l border-gray-700/60 pl-4">Scale: 10 × 10 ft / cell</span>
+          <span className="hidden md:inline text-gray-600 border-l border-gray-700/60 pl-4">Scale: 10 × 10 ft / cell</span>
 
           {/* Export */}
           {sitePlan && (
