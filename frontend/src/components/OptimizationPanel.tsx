@@ -27,8 +27,8 @@ interface Props {
 }
 
 const OBJECTIVES: { id: Exclude<OptimizationObjective, 'user_plan'>; label: string; description: string }[] = [
-  { id: 'min_area', label: 'Min Area', description: 'Smallest site footprint at fixed total MWh' },
-  { id: 'min_cost', label: 'Min Cost', description: 'Lowest total equipment cost at fixed total MWh' },
+  { id: 'min_area', label: 'Smallest Site', description: 'Smallest site footprint at fixed total MWh' },
+  { id: 'min_cost', label: 'Lowest Cost', description: 'Lowest total equipment cost at fixed total MWh' },
 ]
 
 function fmtCost(c: number): string {
@@ -103,12 +103,12 @@ function computePlanBadges(current: SitePlanData, optimalLayouts: OptimalLayouts
   const areaBadge = (): PlanBadge => {
     const e = optimalLayouts.min_area
     if (e === undefined) return { label: 'Area', text: '…', good: false, loading: true }
-    if (e === null) return { label: 'Area', text: '✓ optimal', good: true, loading: false }
+    if (e === null) return { label: 'Area', text: '✔ Smallest site', good: true, loading: false }
     const delta = e.plan.metrics.boundingAreaSqFt - cm.boundingAreaSqFt
     const abs = Math.abs(delta)
     return {
       label: 'Area',
-      text: delta < 0 ? `+${abs.toLocaleString()} ft²` : `−${abs.toLocaleString()} ft²`,
+      text: delta < 0 ? `Could save ${abs.toLocaleString()} ft²` : `−${abs.toLocaleString()} ft²`,
       good: delta >= 0,
       loading: false,
     }
@@ -117,13 +117,13 @@ function computePlanBadges(current: SitePlanData, optimalLayouts: OptimalLayouts
   const costBadge = (): PlanBadge => {
     const e = optimalLayouts.min_cost
     if (e === undefined) return { label: 'Cost', text: '…', good: false, loading: true }
-    if (e === null) return { label: 'Cost', text: '✓ optimal', good: true, loading: false }
+    if (e === null) return { label: 'Cost', text: '✔ Lowest cost', good: true, loading: false }
     const delta = e.plan.metrics.totalCost - cm.totalCost
     const abs = Math.abs(delta)
     const fmt = abs >= 1_000_000 ? `$${(abs / 1_000_000).toFixed(1)}M` : abs >= 1000 ? `$${Math.round(abs / 1000)}k` : `$${abs}`
     return {
       label: 'Cost',
-      text: delta < 0 ? `+${fmt}` : `−${fmt}`,
+      text: delta < 0 ? `${fmt} above minimum` : `−${fmt}`,
       good: delta >= 0,
       loading: false,
     }
@@ -277,7 +277,7 @@ export default function OptimizationPanel({
         className="w-full flex items-center justify-between px-4 py-2 hover:bg-white/[0.03] transition-colors"
       >
         <div className="flex items-center gap-2">
-          <span className="text-[10px] text-gray-500 uppercase tracking-widest">Optimization</span>
+          <span className="text-[10px] text-gray-500 uppercase tracking-widest">Design Assistant</span>
           {hasHint && !open && (
             <span className="text-[9px] px-1.5 py-0.5 rounded font-medium" style={{ background: 'rgba(37,99,235,0.15)', color: '#60a5fa', border: '1px solid rgba(37,99,235,0.3)' }}>
               suggestions available
@@ -306,13 +306,13 @@ export default function OptimizationPanel({
 
         {/* Mode + constraint input */}
         <div className="shrink-0">
-          <p className="text-[10px] text-gray-500 uppercase tracking-widest mb-1.5">Design Based On</p>
+          <p className="text-[10px] text-gray-500 uppercase tracking-widest mb-1.5">What matters most?</p>
           <div className="flex flex-col items-center md:items-start gap-2">
             <div className="flex items-center gap-1 flex-wrap">
               {/* Mode toggle: Required Energy Capacity / Available Land Area */}
               {(['power', 'area'] as const).map(mode => {
                 const selected = constraintMode === mode
-                const label = mode === 'power' ? 'Energy Capacity' : 'Land Area'
+                const label = mode === 'power' ? 'Energy' : 'Land Area'
                 return (
                   <button
                     key={mode}
@@ -415,7 +415,7 @@ export default function OptimizationPanel({
         {/* Sub-objectives (power mode only) */}
         {constraintMode === 'power' && (
           <div className="shrink-0">
-            <p className="text-[10px] text-gray-500 uppercase tracking-widest mb-1.5">Objective</p>
+            <p className="text-[10px] text-gray-500 uppercase tracking-widest mb-1.5">Optimize For</p>
             <div className="flex items-center gap-1">
               {OBJECTIVES.map(o => {
                 const selected = activeObjective === o.id
@@ -445,8 +445,8 @@ export default function OptimizationPanel({
 
         {/* Suggestion — power mode */}
         {constraintMode === 'power' && (() => {
-          if (optEntry === undefined) return <p className="text-[11px] text-gray-600 italic">Computing optimal layout…</p>
-          if (optEntry === null) return <p className="text-[11px] text-gray-600 italic">Layout is already globally optimal for this objective.</p>
+          if (optEntry === undefined) return <p className="text-[11px] text-gray-600 italic">Finding the best layout…</p>
+          if (optEntry === null) return <p className="text-[11px] text-gray-600 italic">{activeObjective === 'min_area' ? 'This layout is already the most space-efficient for your goal.' : 'This layout is already the most cost-efficient for your goal.'}</p>
           const dm = optEntry.plan.metrics
           const cm = sitePlan.metrics
           const deltaArea = dm.boundingAreaSqFt - cm.boundingAreaSqFt
@@ -458,7 +458,7 @@ export default function OptimizationPanel({
             <div className="flex flex-col gap-1.5 min-w-0">
               <div className="flex flex-wrap items-center gap-2 md:gap-4">
                 <div className="shrink-0">
-                  <p className="text-[10px] text-gray-500 uppercase tracking-widest mb-0.5">Global optimum</p>
+                  <p className="text-[10px] text-gray-500 uppercase tracking-widest mb-0.5">Best layout</p>
                   <p className="text-xs text-white leading-tight">
                     <span className="text-blue-400 font-medium">{optEntry.label}</span>
                     <span className="text-gray-600 text-[10px] ml-1">{dm.siteWidthFt}×{dm.siteHeightFt} ft</span>
@@ -525,20 +525,20 @@ export default function OptimizationPanel({
 
         {/* Suggestion — area mode */}
         {constraintMode === 'area' && (() => {
-          if (optimalMaxPower === undefined) return <p className="text-[11px] text-gray-600 italic">Computing max power layout…</p>
-          if (optimalMaxPower === null) return <p className="text-[11px] text-gray-600 italic">No layout fits within this area.</p>
+          if (optimalMaxPower === undefined) return <p className="text-[11px] text-gray-600 italic">Finding the best layout for your area…</p>
+          if (optimalMaxPower === null) return <p className="text-[11px] text-gray-600 italic">No devices fit within this area.</p>
           const om = optimalMaxPower.metrics
           const cm = sitePlan.metrics
           const deltaEnergy = om.totalEnergyMWh - cm.totalEnergyMWh
           const deltaCost = om.totalCost - cm.totalCost
           const first = optimalMaxPower.requestedDevices[0]
           const isCurrentOptimal = Math.abs(deltaEnergy) < 0.01 && Math.abs(deltaCost) < 1
-          if (isCurrentOptimal) return <p className="text-[11px] text-gray-600 italic">Layout already maximises power within this area.</p>
+          if (isCurrentOptimal) return <p className="text-[11px] text-gray-600 italic">This layout already fits the most energy possible within your area.</p>
           const suggestion = entryToSuggestion({ label: first ? `${first.quantity}× units` : 'optimal', plan: optimalMaxPower }, sitePlan)
           return (
             <div className="flex flex-wrap items-center gap-2 md:gap-4 min-w-0">
               <div className="shrink-0">
-                <p className="text-[10px] text-gray-500 uppercase tracking-widest mb-0.5">Max power layout</p>
+                <p className="text-[10px] text-gray-500 uppercase tracking-widest mb-0.5">Max energy layout</p>
                 <p className="text-xs text-white leading-tight">
                   <span className="text-blue-400 font-medium">{om.totalEnergyMWh.toFixed(1)} MWh</span>
                   <span className="text-gray-600 text-[10px] ml-1">{om.siteWidthFt}×{om.siteHeightFt} ft</span>
