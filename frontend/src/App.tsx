@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { fetchDevices, generateSitePlan, optimizeSitePlan, optimizeMaxPower, getSession, createSession, updateSession, listSessions } from './api'
+import { fetchDevices, generateSitePlan, optimizeSitePlan, optimizeMaxPower, planForEnergy, getSession, createSession, updateSession, listSessions } from './api'
 import type { Device, OptimalLayouts, OptimizationObjective, OptimizationSuggestion, SessionData, SitePlanData } from './types/api'
 
 import DeviceCatalog from './components/DeviceCatalog'
@@ -350,21 +350,7 @@ export default function App() {
   }
 
   const handleTargetMWhChange = async (targetMWh: number) => {
-    if (!sitePlan || targetMWh <= 0) return
-    const currentMWh = sitePlan.metrics.totalEnergyMWh
-    if (currentMWh <= 0) return
-
-    // Scale each device quantity proportionally to hit the new target
-    const scale = targetMWh / currentMWh
-    const next: Record<number, number> = {}
-    for (const [id, qty] of Object.entries(quantities)) {
-      next[Number(id)] = Math.max(1, Math.round((qty as number) * scale))
-    }
-
-    const configured = Object.entries(next)
-      .filter(([, q]) => q > 0)
-      .map(([id, quantity]) => ({ id: Number(id), quantity: quantity as number }))
-    if (configured.length === 0) return
+    if (targetMWh <= 0) return
 
     setLoadingSplash(true)
     setLoadingSplashFading(false)
@@ -374,15 +360,24 @@ export default function App() {
     manualSnapshotRef.current = null
 
     const planObjective = objectiveRef.current === 'user_plan' ? 'min_area' : objectiveRef.current
-    const res = await generateSitePlan(configured, planObjective)
+
+    // Ask the backend to find the best device combination that achieves targetMWh.
+    // This searches the full catalog (single-type and two-type mixes) so it can
+    // find cross-type solutions that proportional scaling would miss (e.g. 7 MWh
+    // via 1× Megapack XL + 1× Megapack 2 instead of 7× PowerPack).
+    const res = await planForEnergy(targetMWh, planObjective)
     setIsGenerating(false)
     setTimeout(() => setLoadingSplashFading(true), 600)
     setTimeout(() => setLoadingSplash(false), 1000)
 
     if (res.success && res.data) {
       const achievedMWh = res.data.metrics.totalEnergyMWh
+      // Derive the new quantities from the plan's requestedDevices.
+      const next: Record<number, number> = Object.fromEntries(
+        res.data.requestedDevices.map(d => [d.id, d.quantity])
+      )
       if (Math.abs(achievedMWh - targetMWh) > 0.1) {
-        // Can't hit the exact target — ask for consent before applying
+        // Nearest achievable differs — ask for consent before applying.
         setPendingTargetPlan({ plan: res.data, quantities: next, requestedMWh: targetMWh })
       } else {
         setQuantities(next)

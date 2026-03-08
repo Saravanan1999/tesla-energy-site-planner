@@ -377,60 +377,66 @@ func packRows(devices []deviceSpec, zone models.LayoutZone, startX, startY, usab
 	return allItems, endY, nil
 }
 
-// Optimize finds the best single-battery-type replacement plan for the given objective.
-// It generates a real layout (including transformer costs) for each candidate battery type
-// and returns the plan only if it genuinely improves on the current plan's metrics.
-// Returns nil if the current plan is already optimal.
-func (s *SitePlanService) Optimize(ctx context.Context, req models.GenerateSitePlanRequest) (*models.SitePlanData, *models.APIError) {
-	objective := req.Objective
-	if objective == "" {
-		objective = models.ObjectiveMinArea
-	}
-
-	// Generate current plan to establish baseline metrics
-	currentPlan, apiErr := s.Generate(ctx, req)
-	if apiErr != nil {
-		return nil, apiErr
-	}
-
-	targetEnergy := currentPlan.Metrics.TotalEnergyMWh
-	if targetEnergy <= 0 {
-		return nil, nil
-	}
-
-	// Fetch all battery types from catalog
-	rows, err := s.db.QueryContext(ctx,
+// fetchBatteryCatalog returns all battery device specs from the DB.
+func (s *SitePlanService) fetchBatteryCatalog(ctx context.Context) ([]deviceSpec, *models.APIError) {
+	dbRows, err := s.db.QueryContext(ctx,
 		`SELECT id, name, width_ft, height_ft, energy_mwh, cost FROM devices WHERE category = 'battery'`,
 	)
 	if err != nil {
 		return nil, &models.APIError{Code: models.ErrorInternal, Message: "failed to fetch devices"}
 	}
-	defer rows.Close()
+	defer dbRows.Close()
 
 	var catalog []deviceSpec
-	for rows.Next() {
+	for dbRows.Next() {
 		var d deviceSpec
-		if err := rows.Scan(&d.id, &d.name, &d.widthFt, &d.heightFt, &d.energyMWh, &d.cost); err != nil {
+		if err := dbRows.Scan(&d.id, &d.name, &d.widthFt, &d.heightFt, &d.energyMWh, &d.cost); err != nil {
 			return nil, &models.APIError{Code: models.ErrorInternal, Message: "failed to read devices"}
 		}
 		catalog = append(catalog, d)
 	}
-	if err := rows.Err(); err != nil {
+	if err := dbRows.Err(); err != nil {
 		return nil, &models.APIError{Code: models.ErrorInternal, Message: "failed to iterate devices"}
 	}
+	return catalog, nil
+}
 
-	// Find the globally best single-device plan for this objective at the given energy.
-	// We track the raw metric (area or cost) so the result is independent of the current plan —
-	// for a given total MWh, there is exactly one global optimum per objective.
+// bestPlanForEnergy searches single-type and two-type combinations to find the plan that
+// best achieves targetEnergy for the given objective. Returns nil if no candidate fits
+// within the energy tolerance window.
+func (s *SitePlanService) bestPlanForEnergy(ctx context.Context, targetEnergy float64, objective models.OptimizationObjective, catalog []deviceSpec) *models.SitePlanData {
 	var bestPlan *models.SitePlanData
 	bestMetric := math.MaxFloat64
 
+	tryPlan := func(devices []models.ConfiguredDevice, totalEnergy float64) {
+		// Energy must not exceed target (0.05 MWh float tolerance) and can drop at most 1%.
+		if totalEnergy > targetEnergy+0.05 || totalEnergy < targetEnergy*0.99 {
+			return
+		}
+		plan, err := s.Generate(ctx, models.GenerateSitePlanRequest{Devices: devices, Objective: objective})
+		if err != nil {
+			return
+		}
+		var metric float64
+		switch objective {
+		case models.ObjectiveMinArea:
+			metric = float64(plan.Metrics.BoundingAreaSqFt)
+		case models.ObjectiveMinCost:
+			metric = float64(plan.Metrics.TotalCost)
+		default:
+			return
+		}
+		if bestPlan == nil || metric < bestMetric {
+			bestPlan = plan
+			bestMetric = metric
+		}
+	}
+
+	// Phase 1: single-type candidates — floor/ceil quantity matching.
 	for _, d := range catalog {
 		if d.energyMWh <= 0 {
 			continue
 		}
-
-		// Try floor and ceil quantities; pick whichever yields energy closest to target.
 		qFloor := int(math.Floor(targetEnergy / d.energyMWh))
 		qCeil := qFloor + 1
 		qty := qFloor
@@ -446,45 +452,93 @@ func (s *SitePlanService) Optimize(ctx context.Context, req models.GenerateSiteP
 		if qty <= 0 {
 			continue
 		}
-		candidateEnergy := float64(qty) * d.energyMWh
-		// Energy must not exceed target (never add power, 0.05 MWh float tolerance),
-		// and can decrease by at most 1%.
-		if candidateEnergy > targetEnergy+0.05 || candidateEnergy < targetEnergy*0.99 {
-			continue
-		}
+		tryPlan(
+			[]models.ConfiguredDevice{{ID: d.id, Quantity: qty}},
+			float64(qty)*d.energyMWh,
+		)
+	}
 
-		plan, apiErr := s.Generate(ctx, models.GenerateSitePlanRequest{
-			Devices:   []models.ConfiguredDevice{{ID: d.id, Quantity: qty}},
-			Objective: objective,
-		})
-		if apiErr != nil {
-			continue
-		}
-
-		var metric float64
-		switch objective {
-		case models.ObjectiveMinArea:
-			metric = float64(plan.Metrics.BoundingAreaSqFt)
-		case models.ObjectiveMinCost:
-			metric = float64(plan.Metrics.TotalCost)
-		default:
-			continue
-		}
-		if bestPlan == nil || metric < bestMetric {
-			bestPlan = plan
-			bestMetric = metric
+	// Phase 2: two-type mixed candidates — sweep 9 energy splits (10%…90%) for
+	// every pair of distinct battery types.
+	for i := 0; i < len(catalog); i++ {
+		for j := i + 1; j < len(catalog); j++ {
+			a, b := catalog[i], catalog[j]
+			if a.energyMWh <= 0 || b.energyMWh <= 0 {
+				continue
+			}
+			for split := 1; split <= 9; split++ {
+				fracA := float64(split) / 10.0
+				qA := int(math.Round(fracA * targetEnergy / a.energyMWh))
+				qB := int(math.Round((1-fracA) * targetEnergy / b.energyMWh))
+				if qA <= 0 {
+					qA = 1
+				}
+				if qB <= 0 {
+					qB = 1
+				}
+				tryPlan(
+					[]models.ConfiguredDevice{{ID: a.id, Quantity: qA}, {ID: b.id, Quantity: qB}},
+					float64(qA)*a.energyMWh+float64(qB)*b.energyMWh,
+				)
+			}
 		}
 	}
 
+	return bestPlan
+}
+
+// Optimize finds the best replacement plan for the given objective by searching both
+// single-type homogeneous configurations and two-type mixed configurations.
+// Returns nil if the current plan is already optimal.
+func (s *SitePlanService) Optimize(ctx context.Context, req models.GenerateSitePlanRequest) (*models.SitePlanData, *models.APIError) {
+	objective := req.Objective
+	if objective == "" {
+		objective = models.ObjectiveMinArea
+	}
+
+	currentPlan, apiErr := s.Generate(ctx, req)
+	if apiErr != nil {
+		return nil, apiErr
+	}
+
+	targetEnergy := currentPlan.Metrics.TotalEnergyMWh
+	if targetEnergy <= 0 {
+		return nil, nil
+	}
+
+	catalog, apiErr := s.fetchBatteryCatalog(ctx)
+	if apiErr != nil {
+		return nil, apiErr
+	}
+
+	bestPlan := s.bestPlanForEnergy(ctx, targetEnergy, objective, catalog)
 	if bestPlan == nil {
 		return nil, nil
 	}
 	// Return nil when the current plan is already at or better than the global optimum.
-	// The frontend treats a nil response as "already optimal".
 	if objectiveImprovement(objective, bestPlan.Metrics, currentPlan.Metrics) <= 0 {
 		return nil, nil
 	}
 	return bestPlan, nil
+}
+
+// PlanForEnergy finds the best plan that achieves targetMWh for the given objective
+// by searching single-type and two-type combinations across the full device catalog.
+// Returns nil (no error) when no combination can reach the target within tolerance.
+func (s *SitePlanService) PlanForEnergy(ctx context.Context, targetMWh float64, objective models.OptimizationObjective) (*models.SitePlanData, *models.APIError) {
+	if targetMWh <= 0 {
+		return nil, &models.APIError{Code: models.ErrorInvalidConfig, Message: "targetMWh must be positive"}
+	}
+	if objective == "" {
+		objective = models.ObjectiveMinArea
+	}
+
+	catalog, apiErr := s.fetchBatteryCatalog(ctx)
+	if apiErr != nil {
+		return nil, apiErr
+	}
+
+	return s.bestPlanForEnergy(ctx, targetMWh, objective, catalog), nil
 }
 
 // OptimizeMaxPower finds the device type and quantity that maximises total energy within

@@ -119,6 +119,44 @@ func (h *SitePlanHandler) OptimizeMaxPower(w http.ResponseWriter, r *http.Reques
 	})
 }
 
+func (h *SitePlanHandler) PlanForEnergy(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeSitePlanError(w, http.StatusMethodNotAllowed, &models.APIError{
+			Code:    models.ErrorMethodNotAllowed,
+			Message: "method not allowed",
+		})
+		return
+	}
+
+	var req struct {
+		TargetMWh float64                      `json:"targetMWh"`
+		Objective models.OptimizationObjective `json:"objective"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.TargetMWh <= 0 {
+		writeSitePlanError(w, http.StatusBadRequest, &models.APIError{
+			Code:    models.ErrorInvalidConfig,
+			Message: "targetMWh must be a positive number",
+		})
+		return
+	}
+
+	data, apiErr := h.service.PlanForEnergy(r.Context(), req.TargetMWh, req.Objective)
+	if apiErr != nil {
+		status := http.StatusBadRequest
+		if apiErr.Code == models.ErrorInternal {
+			status = http.StatusInternalServerError
+		}
+		writeSitePlanError(w, status, apiErr)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(models.SitePlanResponse{
+		Success: true,
+		Data:    data,
+	})
+}
+
 func writeSitePlanError(w http.ResponseWriter, status int, apiErr *models.APIError) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
