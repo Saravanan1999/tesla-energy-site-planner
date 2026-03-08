@@ -635,6 +635,37 @@ export default function SiteCanvas({ sitePlan, isLoading, error, onRemove, siteN
   }
   const handleMouseUp = () => { isDragging.current = false; setDragging(false) }
 
+  const lastTouchRef = useRef<{ x: number; y: number; dist: number } | null>(null)
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (e.touches.length === 1) {
+      const t = e.touches[0]
+      isDragging.current = true
+      dragStart.current = { x: t.clientX, y: t.clientY, px: panRef.current.x, py: panRef.current.y }
+      lastTouchRef.current = { x: t.clientX, y: t.clientY, dist: 0 }
+      setDragging(true)
+    } else if (e.touches.length === 2) {
+      const dx = e.touches[0].clientX - e.touches[1].clientX
+      const dy = e.touches[0].clientY - e.touches[1].clientY
+      lastTouchRef.current = { x: 0, y: 0, dist: Math.hypot(dx, dy) }
+    }
+  }
+  const handleTouchMove = (e: React.TouchEvent) => {
+    e.preventDefault()
+    if (e.touches.length === 1 && isDragging.current) {
+      const t = e.touches[0]
+      setPan({ x: dragStart.current.px + t.clientX - dragStart.current.x, y: dragStart.current.py + t.clientY - dragStart.current.y })
+    } else if (e.touches.length === 2 && lastTouchRef.current) {
+      const dx = e.touches[0].clientX - e.touches[1].clientX
+      const dy = e.touches[0].clientY - e.touches[1].clientY
+      const dist = Math.hypot(dx, dy)
+      const scale = dist / lastTouchRef.current.dist
+      const z = Math.min(5, Math.max(0.15, zoomRef.current * scale))
+      setZoom(z)
+      lastTouchRef.current = { ...lastTouchRef.current, dist }
+    }
+  }
+  const handleTouchEnd = () => { isDragging.current = false; setDragging(false); lastTouchRef.current = null }
+
   // Conditional renders AFTER all hooks
   if (error && !sitePlan) {
     return (
@@ -803,11 +834,14 @@ export default function SiteCanvas({ sitePlan, isLoading, error, onRemove, siteN
       <div
         ref={containerRef}
         className="flex-1 overflow-hidden bg-gray-950 relative select-none"
-        style={{ cursor: dragging ? 'grabbing' : 'grab' }}
+        style={{ cursor: dragging ? 'grabbing' : 'grab', touchAction: 'none' }}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
       >
         <div style={{ position: 'absolute', top: 0, left: 0, transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: '0 0' }}>
         {/* Site bounding box */}
