@@ -819,7 +819,7 @@ export default function SiteCanvas({ sitePlan, isLoading, error, onRemove, siteN
 
           {/* Zoom controls */}
           <span className="flex items-center gap-0.5 border-l border-gray-700/60 pl-3">
-            <span className="text-[10px] text-gray-500 uppercase tracking-widest mr-1.5">Zoom level</span>
+            <span className="hidden md:inline text-[10px] text-gray-500 uppercase tracking-widest mr-1.5">Zoom level</span>
             <div className="relative group/zoomout">
               <button
                 onClick={() => { const z = Math.max(0.15, zoom - 0.25); setZoom(z) }}
