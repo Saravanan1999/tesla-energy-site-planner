@@ -255,8 +255,8 @@ export default function App() {
     setLoadingSplashFading(false)
     const res = await getSession(sessionId)
     if (res.success && res.data) {
-      const { name, requestedDevices, metrics, layout, safetyAssumptions, warnings, objective: sessionObjective, suggestion } = res.data
-      setSitePlan({ requestedDevices, metrics, layout, safetyAssumptions, warnings, objective: sessionObjective, suggestion })
+      const { name, requestedDevices, metrics, layout, safetyAssumptions, warnings, objective: sessionObjective } = res.data
+      setSitePlan({ requestedDevices, metrics, layout, safetyAssumptions, warnings, objective: sessionObjective })
       setSiteName(name)
       setCurrentSessionId(res.data.sessionId)
       setPlanError(null)

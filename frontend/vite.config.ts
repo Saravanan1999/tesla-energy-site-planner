@@ -5,8 +5,6 @@ import tailwindcss from '@tailwindcss/vite'
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: {
-    proxy: {
-      '/api': 'https://tesla-energy-site-planner.onrender.com',
-    },
+    port: 8000,
   },
 })
