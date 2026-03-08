@@ -84,13 +84,13 @@ export default function DeviceCard({ device, quantity, onChange }: Props) {
         <input
           type="number"
           min={0}
-          max={99}
+          max={999}
           value={quantity}
-          onChange={e => onChange(Math.max(0, Math.min(99, parseInt(e.target.value) || 0)))}
-          className="w-12 h-7 text-center text-sm bg-gray-800 border border-gray-600 rounded-md text-white focus:outline-none focus:border-blue-500"
+          onChange={e => onChange(Math.max(0, Math.min(999, parseInt(e.target.value) || 0)))}
+          className="w-14 h-7 text-center text-sm bg-gray-800 border border-gray-600 rounded-md text-white focus:outline-none focus:border-blue-500"
         />
         <button
-          onClick={() => onChange(Math.min(99, quantity + 1))}
+          onClick={() => onChange(Math.min(999, quantity + 1))}
           className="w-7 h-7 rounded-md bg-gray-700 hover:bg-gray-600 text-white font-bold text-sm flex items-center justify-center transition-colors"
         >+</button>
         {isActive && (
