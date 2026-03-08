@@ -15,7 +15,6 @@ export default function App() {
     try { return JSON.parse(localStorage.getItem('draft_quantities') ?? '{}') } catch { return {} }
   })
   const [sitePlan, setSitePlan] = useState<SitePlanData | null>(null)
-  const [isGenerating, setIsGenerating] = useState(false)
   const [planError, setPlanError] = useState<string | null>(null)
   const [showResume, setShowResume] = useState(false)
   const [siteName, setSiteName] = useState(() => localStorage.getItem('draft_siteName') ?? '')
@@ -168,10 +167,8 @@ export default function App() {
           .filter(([, q]) => q > 0)
           .map(([id, quantity]) => ({ id: Number(id), quantity }))
         if (configured.length > 0) {
-          setIsGenerating(true)
           const initObjective = objectiveRef.current === 'user_plan' ? 'min_area' : objectiveRef.current
           generateSitePlan(configured, initObjective).then(planRes => {
-            setIsGenerating(false)
             if (planRes.success && planRes.data) setSitePlan(planRes.data)
             else { console.error('[app] init generateSitePlan failed', planRes.error); setPlanError(planRes.error?.message ?? 'Failed to restore layout.') }
             setDataLoaded(true)
@@ -205,11 +202,9 @@ export default function App() {
     }
 
     debounceRef.current = setTimeout(async () => {
-      setIsGenerating(true)
       setPlanError(null)
       const planObjective = objectiveRef.current === 'user_plan' ? 'min_area' : objectiveRef.current
       const res = await generateSitePlan(configured, planObjective)
-      setIsGenerating(false)
       if (res.success && res.data) {
         setSitePlan(res.data)
         setIsDirty(true)
@@ -293,10 +288,8 @@ export default function App() {
       .filter(([, q]) => q > 0)
       .map(([id, quantity]) => ({ id: Number(id), quantity }))
     if (configured.length === 0) return
-    setIsGenerating(true)
     setPlanError(null)
     const res = await generateSitePlan(configured, obj)
-    setIsGenerating(false)
     if (res.success && res.data) setSitePlan(res.data)
     else { console.error('[app] objective change generateSitePlan failed', res.error); setPlanError(res.error?.message ?? 'Failed to generate layout.'); setSitePlan(null) }
   }
@@ -327,11 +320,9 @@ export default function App() {
       .filter(([, q]) => q > 0)
       .map(([id, quantity]) => ({ id: Number(id), quantity }))
     if (configured.length === 0) { setSitePlan(null); return }
-    setIsGenerating(true)
     setPlanError(null)
     const applyObjective = objectiveRef.current === 'user_plan' ? 'min_area' : objectiveRef.current
     const res = await generateSitePlan(configured, applyObjective)
-    setIsGenerating(false)
     if (res.success && res.data) { setSitePlan(res.data); setIsDirty(true) }
     else { console.error('[app] apply suggestion generateSitePlan failed', res.error); setPlanError(res.error?.message ?? 'Failed to generate layout.'); setSitePlan(null) }
   }
@@ -347,11 +338,9 @@ export default function App() {
       .filter(([, q]) => (q as number) > 0)
       .map(([id, quantity]) => ({ id: Number(id), quantity: quantity as number }))
     if (configured.length === 0) { setSitePlan(null); return }
-    setIsGenerating(true)
     setPlanError(null)
     const revertObjective = objectiveRef.current === 'user_plan' ? 'min_area' : objectiveRef.current
     const res = await generateSitePlan(configured, revertObjective)
-    setIsGenerating(false)
     if (res.success && res.data) { setSitePlan(res.data); setIsDirty(true) }
     else { console.error('[app] revert generateSitePlan failed', res.error); setPlanError(res.error?.message ?? 'Failed to restore layout.'); setSitePlan(null) }
   }
@@ -359,7 +348,6 @@ export default function App() {
   const handleTargetMWhChange = async (targetMWh: number) => {
     if (targetMWh <= 0) return
 
-    setIsGenerating(true)
     setPlanError(null)
     clearTimeout(debounceRef.current)
     manualSnapshotRef.current = null
@@ -372,7 +360,6 @@ export default function App() {
     // find cross-type solutions that proportional scaling would miss (e.g. 7 MWh
     // via 1× Megapack XL + 1× Megapack 2 instead of 7× PowerPack).
     const res = await planForEnergy(targetMWh, planObjective)
-    setIsGenerating(false)
 
     if (res.success && res.data) {
       const achievedMWh = res.data.metrics.totalEnergyMWh
@@ -591,7 +578,6 @@ export default function App() {
         <main className="flex-1 flex flex-col md:overflow-hidden">
           <SiteCanvas
             sitePlan={sitePlan}
-            isLoading={isGenerating}
             error={planError}
             onRemove={id => handleQuantityChange(id, Math.max(0, (quantities[id] ?? 0) - 1))}
             siteName={siteName}
