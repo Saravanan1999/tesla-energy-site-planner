@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useLayoutEffect } from 'react'
 
 interface Props {
   children: React.ReactNode
@@ -9,6 +9,8 @@ interface Props {
 export default function InfoTooltip({ children, align = 'center', position = 'top' }: Props) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
+  const boxRef = useRef<HTMLDivElement>(null)
+  const [offset, setOffset] = useState(0)
 
   useEffect(() => {
     if (!open) return
@@ -23,8 +25,24 @@ export default function InfoTooltip({ children, align = 'center', position = 'to
     }
   }, [open])
 
+  // After the tooltip renders, check if it overflows the viewport and correct.
+  useLayoutEffect(() => {
+    if (!open || !boxRef.current) { setOffset(0); return }
+    const rect = boxRef.current.getBoundingClientRect()
+    const vw = window.innerWidth
+    const MARGIN = 8
+    if (rect.right > vw - MARGIN) {
+      setOffset(-(rect.right - (vw - MARGIN)))
+    } else if (rect.left < MARGIN) {
+      setOffset(MARGIN - rect.left)
+    } else {
+      setOffset(0)
+    }
+  }, [open])
+
   const tooltipPos = position === 'top' ? 'bottom-full mb-2' : 'top-full mt-2'
-  const tooltipAlign =
+  // Base horizontal anchor — correction applied via inline translateX offset
+  const tooltipAnchor =
     align === 'left' ? 'left-0' :
     align === 'right' ? 'right-0' :
     'left-1/2 -translate-x-1/2'
@@ -45,8 +63,14 @@ export default function InfoTooltip({ children, align = 'center', position = 'to
         <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a.75.75 0 000 1.5h.253a.25.25 0 01.244.304l-.459 2.066A1.75 1.75 0 0010.747 15H11a.75.75 0 000-1.5h-.253a.25.25 0 01-.244-.304l.459-2.066A1.75 1.75 0 009.253 9H9z" clipRule="evenodd" />
       </svg>
       {open && (
-        <div className={`absolute ${tooltipPos} ${tooltipAlign} z-50 pointer-events-none`}>
-          <div className="bg-gray-800 border border-gray-600 rounded-lg px-2.5 py-1.5 text-xs text-gray-300 whitespace-nowrap shadow-xl">
+        <div
+          className={`absolute ${tooltipPos} ${tooltipAnchor} z-50 pointer-events-none`}
+          style={offset !== 0 ? { transform: `translateX(${offset}px)` } : undefined}
+        >
+          <div
+            ref={boxRef}
+            className="bg-gray-800 border border-gray-600 rounded-lg px-2.5 py-1.5 text-xs text-gray-300 whitespace-nowrap shadow-xl max-w-[calc(100vw-16px)]"
+          >
             {children}
             <div className={`absolute ${arrowPos} ${arrowAlign} w-2 h-2 bg-gray-800 border-gray-600 rotate-45`} />
           </div>
