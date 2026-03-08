@@ -1,4 +1,16 @@
-const BASE_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8080";
+enum Env {
+  Local = "local",
+  Prod = "prod",
+}
+
+const ENV: Env = Env.Prod;
+
+const API_URLS: Record<Env, string> = {
+  [Env.Local]: "http://localhost:8080",
+  [Env.Prod]: "https://tesla-energy-site-planner.onrender.com",
+};
+
+export const BASE_URL = import.meta.env.VITE_API_URL ?? API_URLS[ENV];
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE_URL}${path}`, {
