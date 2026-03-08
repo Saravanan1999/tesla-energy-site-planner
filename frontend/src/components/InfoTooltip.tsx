@@ -69,7 +69,7 @@ export default function InfoTooltip({ children, align = 'center', position = 'to
         >
           <div
             ref={boxRef}
-            className="bg-gray-800 border border-gray-600 rounded-lg px-2.5 py-1.5 text-xs text-gray-300 whitespace-nowrap shadow-xl max-w-[calc(100vw-16px)]"
+            className="bg-gray-800 border border-gray-600 rounded-lg px-2.5 py-1.5 text-xs text-gray-300 shadow-xl w-max max-w-[200px]"
           >
             {children}
             <div className={`absolute ${arrowPos} ${arrowAlign} w-2 h-2 bg-gray-800 border-gray-600 rotate-45`} />
