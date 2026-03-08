@@ -257,6 +257,20 @@ describe('OptimizationPanel (expanded)', () => {
     expect(screen.getByPlaceholderText(/Session name/i)).toBeInTheDocument()
   })
 
+  it('shows error text when onSaveAs returns false', async () => {
+    const onSaveAs = vi.fn().mockResolvedValue(false)
+    const props = {
+      ...baseProps,
+      onSaveAs,
+      currentSiteName: 'Site A',
+      appliedSnapshots: [{ quantities: { 1: 2 }, label: 'Applied', type: 'apply' as const }],
+    }
+    render(<OptimizationPanel {...props} />)
+    fireEvent.click(screen.getByText(/Save as new session/i))
+    fireEvent.click(screen.getByText('Save'))
+    await vi.waitFor(() => expect(screen.getByText(/Failed to save/i)).toBeInTheDocument())
+  })
+
   it('calls onSaveAs when Save button is clicked in the save-as form', async () => {
     const onSaveAs = vi.fn().mockResolvedValue(true)
     const props = {

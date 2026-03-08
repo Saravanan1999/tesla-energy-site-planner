@@ -46,6 +46,24 @@ describe('ResumeModal', () => {
     await waitFor(() => expect(screen.getByText('Alpha Site')).toBeInTheDocument())
   })
 
+  it('shows fallback error when resume fails with no message', async () => {
+    mockListSessions.mockResolvedValue({ success: true, data: { sessions: [session] } })
+    const { onResume } = setup()
+    onResume.mockResolvedValue({ success: false })
+    await waitFor(() => screen.getByText('Alpha Site'))
+    fireEvent.click(screen.getByText('Alpha Site').closest('button')!)
+    await waitFor(() => expect(screen.getByText('Failed to load session.')).toBeInTheDocument())
+  })
+
+  it('shows fallback error when delete fails with no message', async () => {
+    mockListSessions.mockResolvedValue({ success: true, data: { sessions: [session] } })
+    mockDeleteSession.mockResolvedValue({ success: false })
+    setup()
+    await waitFor(() => screen.getByText('Alpha Site'))
+    fireEvent.click(screen.getByTitle('Delete session'))
+    await waitFor(() => expect(screen.getByText('Failed to delete session.')).toBeInTheDocument())
+  })
+
   it('calls onClose when the ✕ button is clicked', async () => {
     const { onClose } = setup()
     fireEvent.click(screen.getByText('✕'))

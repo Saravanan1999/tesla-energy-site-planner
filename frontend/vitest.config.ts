@@ -20,6 +20,8 @@ export default defineConfig({
         // Full-app integration and canvas require e2e testing, not unit tests
         'src/App.tsx',
         'src/components/SiteCanvas.tsx',
+        // Type-only file — interfaces erase to nothing at runtime
+        'src/types/api.ts',
       ],
     },
   },
