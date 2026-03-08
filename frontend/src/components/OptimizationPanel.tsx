@@ -172,7 +172,8 @@ export default function OptimizationPanel({
   const commitMWh = () => {
     setEditingMWh(false)
     let val = parseFloat(mwhInput)
-    if (isNaN(val) || val <= 0) return
+    if (isNaN(val) || val < 0) return
+    val = Math.max(0.1, val) // 0 → 0.1 so backend returns no plan → "No plan found" message
     if (val > MAX_TARGET_MWH) val = MAX_TARGET_MWH
     if (Math.abs(val - sitePlan.metrics.totalEnergyMWh) > 0.05) {
       onTargetMWhChange(val)
@@ -187,7 +188,8 @@ export default function OptimizationPanel({
   const commitArea = () => {
     setEditingArea(false)
     let val = parseInt(areaInput, 10)
-    if (isNaN(val) || val <= 0) return
+    if (isNaN(val) || val < 0) return
+    val = Math.max(1, val) // 0 → 1 so backend returns null → "No devices fit" message
     if (val > MAX_TARGET_AREA_SQFT) val = MAX_TARGET_AREA_SQFT
     if (val !== targetAreaSqFt) {
       onTargetAreaChange(val)
