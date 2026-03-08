@@ -704,10 +704,38 @@ export default function SiteCanvas({ sitePlan, isLoading, error, onRemove, siteN
   }
 
   if (isLoading && !sitePlan) {
+    const batt = [
+      { x: 9,  y: 9,  d: 0 }, { x: 52, y: 9,  d: 1 },
+      { x: 9,  y: 28, d: 2 }, { x: 52, y: 28, d: 3 },
+      { x: 9,  y: 47, d: 4 }, { x: 52, y: 47, d: 5 },
+    ]
+    const trans = [{ x: 9, d: 6 }, { x: 25, d: 7 }]
     return (
-      <div className="flex-1 flex items-center justify-center">
-        <div className="flex items-center gap-3 text-gray-400">
-          <div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+      <div className="flex-1 flex flex-col items-center justify-center gap-5">
+        <svg viewBox="0 0 100 92" className="w-36 h-[126px]" fill="none">
+          <rect className="layout-outline" x="1" y="1" width="98" height="90" rx="2"
+            stroke="#1e40af" strokeWidth="1.5" />
+          <rect className="layout-inner" x="9" y="9" width="82" height="62" rx="1"
+            stroke="#374151" strokeWidth="0.8" strokeDasharray="3 2" />
+          {[23, 42].map((y, i) => (
+            <line key={i} x1="9" y1={y + 0.5} x2="91" y2={y + 0.5}
+              className="layout-inner" stroke="#374151" strokeWidth="0.5" strokeDasharray="2 3" />
+          ))}
+          {batt.map(({ x, y, d }) => (
+            <rect key={d} className="layout-block" x={x} y={y} width={37} height={13} rx="1"
+              fill="#1d4ed8" fillOpacity="0.75" stroke="#3b82f6" strokeWidth="0.5"
+              style={{ animationDelay: `${0.45 + d * 0.11}s` }} />
+          ))}
+          <line x1="9" y1="68.5" x2="91" y2="68.5"
+            className="layout-inner" stroke="#92400e" strokeWidth="0.5" strokeDasharray="2 2" />
+          {trans.map(({ x, d }) => (
+            <rect key={d} className="layout-block" x={x} y={71} width={13} height={13} rx="1"
+              fill="#78350f" fillOpacity="0.85" stroke="#d97706" strokeWidth="0.5"
+              style={{ animationDelay: `${0.45 + d * 0.11}s` }} />
+          ))}
+        </svg>
+        <div className="flex items-center gap-2 text-gray-500 text-xs">
+          <div className="w-3 h-3 border border-blue-500 border-t-transparent rounded-full animate-spin" />
           Generating layout…
         </div>
       </div>
