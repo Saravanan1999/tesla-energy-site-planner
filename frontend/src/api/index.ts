@@ -7,9 +7,10 @@ import type {
   SessionSitePlanData,
   SitePlanData,
 } from '../types/api'
+import { BASE_URL } from './client'
 
 async function post<T>(path: string, body: unknown): Promise<APIResponse<T>> {
-  const res = await fetch(path, {
+  const res = await fetch(`${BASE_URL}${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -18,12 +19,12 @@ async function post<T>(path: string, body: unknown): Promise<APIResponse<T>> {
 }
 
 async function get<T>(path: string): Promise<APIResponse<T>> {
-  const res = await fetch(path)
+  const res = await fetch(`${BASE_URL}${path}`)
   return res.json()
 }
 
 async function put<T>(path: string, body: unknown): Promise<APIResponse<T>> {
-  const res = await fetch(path, {
+  const res = await fetch(`${BASE_URL}${path}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -56,5 +57,5 @@ export const updateSession = (sessionId: string, name: string, devices: Configur
   put<SessionData>(`/api/sessions/${sessionId}`, { name, devices, objective: objective ?? 'min_area', sitePlan })
 
 export const deleteSession = (sessionId: string) =>
-  fetch(`/api/sessions/${sessionId}`, { method: 'DELETE' })
+  fetch(`${BASE_URL}/api/sessions/${sessionId}`, { method: 'DELETE' })
     .then(r => r.json() as Promise<APIResponse<never>>)
