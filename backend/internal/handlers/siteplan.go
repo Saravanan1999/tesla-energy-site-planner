@@ -108,7 +108,11 @@ func (h *SitePlanHandler) OptimizeMaxPower(w http.ResponseWriter, r *http.Reques
 
 	data, apiErr := h.service.OptimizeMaxPower(r.Context(), req.TargetAreaSqFt)
 	if apiErr != nil {
-		writeSitePlanError(w, http.StatusInternalServerError, apiErr)
+		status := http.StatusInternalServerError
+		if apiErr.Code == models.ErrorInvalidConfig {
+			status = http.StatusBadRequest
+		}
+		writeSitePlanError(w, status, apiErr)
 		return
 	}
 

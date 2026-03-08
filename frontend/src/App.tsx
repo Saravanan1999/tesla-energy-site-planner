@@ -169,7 +169,7 @@ export default function App() {
           generateSitePlan(configured, initObjective).then(planRes => {
             setIsGenerating(false)
             if (planRes.success && planRes.data) setSitePlan(planRes.data)
-            else setPlanError(planRes.error?.message ?? 'Failed to restore layout.')
+            else { console.error('[app] init generateSitePlan failed', planRes.error); setPlanError(planRes.error?.message ?? 'Failed to restore layout.') }
             setDataLoaded(true)
           })
         } else {
@@ -216,6 +216,7 @@ export default function App() {
           manualSnapshotRef.current = null
         }
       } else {
+        console.error('[app] generateSitePlan failed', res.error)
         setPlanError(res.error?.message ?? 'Failed to generate layout.')
         setSitePlan(null)
       }
@@ -238,6 +239,7 @@ export default function App() {
       : await createSession(siteName.trim(), configured, saveObjective, sitePlan ?? undefined)
     setIsSaving(false)
     if (!res.success) {
+      console.error('[app] save session failed', res.error)
       setSaveError(res.error?.details?.[0] ?? res.error?.message ?? 'Failed to save.')
     } else {
       if (res.data?.sessionId) setCurrentSessionId(res.data.sessionId)
@@ -254,6 +256,7 @@ export default function App() {
     setLoadingSplash(true)
     setLoadingSplashFading(false)
     const res = await getSession(sessionId)
+    if (!res.success) console.error('[app] getSession failed', { sessionId }, res.error)
     if (res.success && res.data) {
       const { name, requestedDevices, metrics, layout, safetyAssumptions, warnings, objective: sessionObjective } = res.data
       setSitePlan({ requestedDevices, metrics, layout, safetyAssumptions, warnings, objective: sessionObjective })
@@ -291,7 +294,7 @@ export default function App() {
     const res = await generateSitePlan(configured, obj)
     setIsGenerating(false)
     if (res.success && res.data) setSitePlan(res.data)
-    else { setPlanError(res.error?.message ?? 'Failed to generate layout.'); setSitePlan(null) }
+    else { console.error('[app] objective change generateSitePlan failed', res.error); setPlanError(res.error?.message ?? 'Failed to generate layout.'); setSitePlan(null) }
   }
 
   const handleApplySuggestion = async (suggestion: OptimizationSuggestion) => {
@@ -326,7 +329,7 @@ export default function App() {
     const res = await generateSitePlan(configured, applyObjective)
     setIsGenerating(false)
     if (res.success && res.data) { setSitePlan(res.data); setIsDirty(true) }
-    else { setPlanError(res.error?.message ?? 'Failed to generate layout.'); setSitePlan(null) }
+    else { console.error('[app] apply suggestion generateSitePlan failed', res.error); setPlanError(res.error?.message ?? 'Failed to generate layout.'); setSitePlan(null) }
   }
 
   const handleRevert = async () => {
@@ -346,18 +349,17 @@ export default function App() {
     const res = await generateSitePlan(configured, revertObjective)
     setIsGenerating(false)
     if (res.success && res.data) { setSitePlan(res.data); setIsDirty(true) }
-    else { setPlanError(res.error?.message ?? 'Failed to restore layout.'); setSitePlan(null) }
+    else { console.error('[app] revert generateSitePlan failed', res.error); setPlanError(res.error?.message ?? 'Failed to restore layout.'); setSitePlan(null) }
   }
 
   const handleTargetMWhChange = async (targetMWh: number) => {
     if (targetMWh <= 0) return
 
-    setLoadingSplash(true)
-    setLoadingSplashFading(false)
     setIsGenerating(true)
     setPlanError(null)
     clearTimeout(debounceRef.current)
     manualSnapshotRef.current = null
+    setOptimalLayouts({}) // show in-panel loading text while computing
 
     const planObjective = objectiveRef.current === 'user_plan' ? 'min_area' : objectiveRef.current
 
@@ -367,8 +369,6 @@ export default function App() {
     // via 1× Megapack XL + 1× Megapack 2 instead of 7× PowerPack).
     const res = await planForEnergy(targetMWh, planObjective)
     setIsGenerating(false)
-    setTimeout(() => setLoadingSplashFading(true), 600)
-    setTimeout(() => setLoadingSplash(false), 1000)
 
     if (res.success && res.data) {
       const achievedMWh = res.data.metrics.totalEnergyMWh
@@ -385,6 +385,7 @@ export default function App() {
         setAppliedSnapshots([])
       }
     } else {
+      console.error('[app] planForEnergy failed', { targetMWh }, res.error)
       setPlanError(res.error?.message ?? 'Failed to generate layout.')
     }
   }
@@ -432,6 +433,7 @@ export default function App() {
       .map(([id, quantity]) => ({ id: Number(id), quantity }))
     const saveObjective = objective === 'user_plan' ? 'min_area' : objective
     const res = await createSession(newName, configured, saveObjective, sitePlan ?? undefined)
+    if (!res.success) console.error('[app] saveAs createSession failed', { name: newName }, res.error)
     if (res.success) {
       refreshSessionNames()
       setToastLabel(newName)
