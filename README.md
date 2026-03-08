@@ -30,6 +30,38 @@ A site planning tool for utility-scale battery storage projects. Pick from avail
 | [Go](https://go.dev/) | v1.21+ |
 | `make` | pre-installed on macOS/Linux; Windows users can use [WSL](https://learn.microsoft.com/en-us/windows/wsl/install) or run the backend and frontend commands directly |
 
+**macOS (Homebrew):**
+```bash
+brew install go node
+```
+
+> Homebrew always installs current versions — no extra steps needed.
+
+**Linux (Debian/Ubuntu):**
+
+> `apt` ships outdated versions of both Go and Node. Use the official sources instead.
+
+Node.js 20:
+```bash
+sudo apt remove --purge nodejs libnode-dev libnode72 -y
+sudo apt autoremove -y
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt install -y nodejs
+```
+
+Go 1.24:
+```bash
+wget https://go.dev/dl/go1.24.0.linux-amd64.tar.gz
+sudo rm -rf /usr/local/go
+sudo tar -C /usr/local -xzf go1.24.0.linux-amd64.tar.gz
+echo 'export PATH=$PATH:/usr/local/go/bin' >> ~/.bashrc
+source ~/.bashrc
+```
+
+> On ARM (e.g. Raspberry Pi) replace `amd64` with `arm64` in the Go download URL.
+
+**Windows:** Download installers from [go.dev](https://go.dev/dl/) and [nodejs.org](https://nodejs.org/), or use WSL and follow the Linux steps above.
+
 ---
 
 ## Quickstart

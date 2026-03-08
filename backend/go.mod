@@ -1,6 +1,6 @@
 module github.com/stygianphantom/tesla-energy-site-planner
 
-go 1.24.3
+go 1.24
 
 require (
 	github.com/dustin/go-humanize v1.0.1 // indirect

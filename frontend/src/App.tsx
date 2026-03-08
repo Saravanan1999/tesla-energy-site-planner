@@ -625,7 +625,7 @@ export default function App() {
       {showResume && (
         <ResumeModal
           onResume={handleResume}
-          onDelete={id => { if (id === currentSessionId) setCurrentSessionId(null) }}
+          onDelete={id => { if (id === currentSessionId) { setCurrentSessionId(null); setIsDirty(true) } }}
           onClose={() => setShowResume(false)}
         />
       )}
