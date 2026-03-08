@@ -1,7 +1,8 @@
-enum Env {
-  Local = "local",
-  Prod = "prod",
-}
+const Env = {
+  Local: "local",
+  Prod: "prod",
+} as const
+type Env = typeof Env[keyof typeof Env]
 
 const ENV: Env = Env.Prod;
 
