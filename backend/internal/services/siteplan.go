@@ -401,85 +401,164 @@ func (s *SitePlanService) fetchBatteryCatalog(ctx context.Context) ([]deviceSpec
 	return catalog, nil
 }
 
-// bestPlanForEnergy searches single-type and two-type combinations to find the plan that
-// best achieves targetEnergy for the given objective. Returns nil if no candidate fits
-// within the energy tolerance window.
+// dpEnergyStep is the MWh resolution used for DP bucket indexing.
+// All current catalog devices have integer MWh values, so 1 MWh steps are exact.
+const dpEnergyStep = 1.0
+
+// dpK is the maximum number of candidates kept per energy bucket during DP pruning.
+const dpK = 20
+
+// dpCandidate tracks one partial battery mix in the DP table.
+type dpCandidate struct {
+	counts    []int // count of each catalog battery type (indexed by catalog position)
+	cost      int
+	footprint int // sum of widthFt × heightFt over all batteries (layout-agnostic proxy)
+}
+
+func cloneDPCandidate(c dpCandidate) dpCandidate {
+	nc := dpCandidate{counts: make([]int, len(c.counts)), cost: c.cost, footprint: c.footprint}
+	copy(nc.counts, c.counts)
+	return nc
+}
+
+func dpCountsEqual(a, b []int) bool {
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func dpTotalDevices(counts []int) int {
+	n := 0
+	for _, c := range counts {
+		n += c
+	}
+	return n
+}
+
+// dpCandidateWorse returns true if a is a worse partial candidate than b for the given objective.
+func dpCandidateWorse(a, b dpCandidate, obj models.OptimizationObjective) bool {
+	switch obj {
+	case models.ObjectiveMinCost:
+		if a.cost != b.cost {
+			return a.cost > b.cost
+		}
+		if a.footprint != b.footprint {
+			return a.footprint > b.footprint
+		}
+	default: // min_area: footprint is the primary proxy
+		if a.footprint != b.footprint {
+			return a.footprint > b.footprint
+		}
+		if a.cost != b.cost {
+			return a.cost > b.cost
+		}
+	}
+	return dpTotalDevices(a.counts) > dpTotalDevices(b.counts)
+}
+
+// dpInsert adds nc to bucket, deduplicating by counts and evicting the worst when over K.
+func dpInsert(bucket *[]dpCandidate, nc dpCandidate, K int, obj models.OptimizationObjective) {
+	for _, c := range *bucket {
+		if dpCountsEqual(c.counts, nc.counts) {
+			return
+		}
+	}
+	*bucket = append(*bucket, nc)
+	if len(*bucket) <= K {
+		return
+	}
+	worstIdx := 0
+	for i := 1; i < len(*bucket); i++ {
+		if dpCandidateWorse((*bucket)[i], (*bucket)[worstIdx], obj) {
+			worstIdx = i
+		}
+	}
+	(*bucket)[worstIdx] = (*bucket)[len(*bucket)-1]
+	*bucket = (*bucket)[:len(*bucket)-1]
+}
+
+// bestPlanForEnergy uses an unbounded-knapsack DP over energy levels to generate all
+// feasible battery mixes within the tolerance window, then evaluates each with the layout
+// engine and returns the best result for the given objective.
+// Returns nil if no candidate fits within the energy tolerance window.
 func (s *SitePlanService) bestPlanForEnergy(ctx context.Context, targetEnergy float64, objective models.OptimizationObjective, catalog []deviceSpec) *models.SitePlanData {
+	// Build the DP table. Each bucket e holds the top-K candidate mixes whose total
+	// energy equals e × dpEnergyStep MWh.
+	upperBound := targetEnergy + 0.05 + dpEnergyStep
+	nBuckets := int(math.Ceil(upperBound/dpEnergyStep)) + 1
+
+	dp := make([][]dpCandidate, nBuckets)
+	dp[0] = []dpCandidate{{counts: make([]int, len(catalog))}}
+
+	for e := 0; e < nBuckets; e++ {
+		if len(dp[e]) == 0 {
+			continue
+		}
+		for ti, t := range catalog {
+			if t.energyMWh <= 0 {
+				continue
+			}
+			tBuckets := int(math.Round(t.energyMWh / dpEnergyStep))
+			nextE := e + tBuckets
+			if nextE >= nBuckets {
+				continue
+			}
+			for _, c := range dp[e] {
+				nc := cloneDPCandidate(c)
+				nc.counts[ti]++
+				nc.cost += t.cost
+				nc.footprint += t.widthFt * t.heightFt
+				dpInsert(&dp[nextE], nc, dpK, objective)
+			}
+		}
+	}
+
+	// Collect all candidates whose energy lands in the tolerance window [target×0.99, target+0.05].
+	loBucket := int(math.Floor(targetEnergy * 0.99 / dpEnergyStep))
+	hiBucket := int(math.Ceil((targetEnergy + 0.05) / dpEnergyStep))
+	if hiBucket >= nBuckets {
+		hiBucket = nBuckets - 1
+	}
+
 	var bestPlan *models.SitePlanData
 	bestMetric := math.MaxFloat64
 
-	tryPlan := func(devices []models.ConfiguredDevice, totalEnergy float64) {
-		// Energy must not exceed target (0.05 MWh float tolerance) and can drop at most 1%.
-		if totalEnergy > targetEnergy+0.05 || totalEnergy < targetEnergy*0.99 {
-			return
-		}
-		plan, err := s.Generate(ctx, models.GenerateSitePlanRequest{Devices: devices, Objective: objective})
-		if err != nil {
-			return
-		}
-		var metric float64
-		switch objective {
-		case models.ObjectiveMinArea:
-			metric = float64(plan.Metrics.BoundingAreaSqFt)
-		case models.ObjectiveMinCost:
-			metric = float64(plan.Metrics.TotalCost)
-		default:
-			return
-		}
-		if bestPlan == nil || metric < bestMetric {
-			bestPlan = plan
-			bestMetric = metric
-		}
-	}
-
-	// Phase 1: single-type candidates — floor/ceil quantity matching.
-	for _, d := range catalog {
-		if d.energyMWh <= 0 {
-			continue
-		}
-		qFloor := int(math.Floor(targetEnergy / d.energyMWh))
-		qCeil := qFloor + 1
-		qty := qFloor
-		if qFloor > 0 {
-			eFloor := float64(qFloor) * d.energyMWh
-			eCeil := float64(qCeil) * d.energyMWh
-			if math.Abs(eCeil-targetEnergy) < math.Abs(eFloor-targetEnergy) {
-				qty = qCeil
+	for ei := loBucket; ei <= hiBucket; ei++ {
+		for _, c := range dp[ei] {
+			var devs []models.ConfiguredDevice
+			totalE := 0.0
+			for ti, cnt := range c.counts {
+				if cnt > 0 {
+					devs = append(devs, models.ConfiguredDevice{ID: catalog[ti].id, Quantity: cnt})
+					totalE += float64(cnt) * catalog[ti].energyMWh
+				}
 			}
-		} else {
-			qty = qCeil
-		}
-		if qty <= 0 {
-			continue
-		}
-		tryPlan(
-			[]models.ConfiguredDevice{{ID: d.id, Quantity: qty}},
-			float64(qty)*d.energyMWh,
-		)
-	}
-
-	// Phase 2: two-type mixed candidates — sweep 9 energy splits (10%…90%) for
-	// every pair of distinct battery types.
-	for i := 0; i < len(catalog); i++ {
-		for j := i + 1; j < len(catalog); j++ {
-			a, b := catalog[i], catalog[j]
-			if a.energyMWh <= 0 || b.energyMWh <= 0 {
+			if len(devs) == 0 {
 				continue
 			}
-			for split := 1; split <= 9; split++ {
-				fracA := float64(split) / 10.0
-				qA := int(math.Round(fracA * targetEnergy / a.energyMWh))
-				qB := int(math.Round((1-fracA) * targetEnergy / b.energyMWh))
-				if qA <= 0 {
-					qA = 1
-				}
-				if qB <= 0 {
-					qB = 1
-				}
-				tryPlan(
-					[]models.ConfiguredDevice{{ID: a.id, Quantity: qA}, {ID: b.id, Quantity: qB}},
-					float64(qA)*a.energyMWh+float64(qB)*b.energyMWh,
-				)
+			// Guard: recheck exact energy (floating-point accumulation may drift slightly).
+			if totalE > targetEnergy+0.05 || totalE < targetEnergy*0.99 {
+				continue
+			}
+			plan, err := s.Generate(ctx, models.GenerateSitePlanRequest{Devices: devs, Objective: objective})
+			if err != nil {
+				continue
+			}
+			var metric float64
+			switch objective {
+			case models.ObjectiveMinArea:
+				metric = float64(plan.Metrics.BoundingAreaSqFt)
+			case models.ObjectiveMinCost:
+				metric = float64(plan.Metrics.TotalCost)
+			default:
+				continue
+			}
+			if bestPlan == nil || metric < bestMetric {
+				bestPlan = plan
+				bestMetric = metric
 			}
 		}
 	}
