@@ -61,4 +61,10 @@ describe('DeviceCard', () => {
     const { container } = render(<DeviceCard device={mockDevice} quantity={0} onChange={vi.fn()} />)
     expect(container.textContent).not.toContain('$160,000')
   })
+
+  it('renders transformer category styling without crashing', () => {
+    const transformer: Device = { ...mockDevice, id: 2, name: 'Megapack Transformer', category: 'transformer' }
+    render(<DeviceCard device={transformer} quantity={0} onChange={vi.fn()} />)
+    expect(screen.getByText('Megapack Transformer')).toBeInTheDocument()
+  })
 })

@@ -17,6 +17,9 @@ export default defineConfig({
         'src/vite-env.d.ts',
         'src/test-setup.ts',
         'src/**/*.test.{ts,tsx}',
+        // Full-app integration and canvas require e2e testing, not unit tests
+        'src/App.tsx',
+        'src/components/SiteCanvas.tsx',
       ],
     },
   },
