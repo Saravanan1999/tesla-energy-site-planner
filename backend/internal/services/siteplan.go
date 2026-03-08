@@ -27,7 +27,7 @@ const (
 
 	// Input caps — prevent runaway DP table sizes and binary search ranges.
 	maxPlanMWh      = 500.0    // max energy target accepted by plan-for-energy and optimize
-	maxPlanAreaSqFt = 150000   // max area target accepted by optimize-power (≈ 3.4 acres) — sized to fit a 500 MWh plant
+	maxPlanAreaSqFt = 125000   // max area target accepted by optimize-power (≈ 2.9 acres) — sized to fit a 500 MWh plant
 )
 
 type deviceSpec struct {
