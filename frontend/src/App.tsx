@@ -584,7 +584,7 @@ export default function App() {
           onChange={handleQuantityChange}
         />
 
-        <main className="flex-1 flex flex-col overflow-hidden min-h-[600px]">
+        <main className="flex-1 flex flex-col md:overflow-hidden">
           <SiteCanvas
             sitePlan={sitePlan}
             isLoading={isGenerating}
@@ -625,7 +625,7 @@ export default function App() {
       {showResume && (
         <ResumeModal
           onResume={handleResume}
-          onDelete={id => { if (id === currentSessionId) { setCurrentSessionId(null); setIsDirty(true) } }}
+          onDelete={id => { if (id === currentSessionId) { setCurrentSessionId(null); setIsDirty(true) }; refreshSessionNames() }}
           onClose={() => setShowResume(false)}
         />
       )}
