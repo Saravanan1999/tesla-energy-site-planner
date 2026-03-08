@@ -16,7 +16,7 @@ const (
 	sideClearanceFt         = 2
 	rowAisleFt              = 5
 	transformerBufferFt     = 10
-	maxUsableWidthFt        = 100
+	maxUsableWidthFt        = 80 // total site width cap is 100 ft; 80 ft usable = 100 − 2×10 ft perimeter
 	safetyVersion           = "1.0"
 	batteriesPerTransformer = 2
 

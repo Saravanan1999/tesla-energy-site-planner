@@ -1074,7 +1074,7 @@ export default function SiteCanvas({ sitePlan, isLoading, error, onRemove, siteN
               <div className="absolute pointer-events-none" style={{ top: -16, left: 0, width: displayedW, display: 'flex', alignItems: 'center' }}>
                 <span style={{ fontSize: 9, color: '#475569', lineHeight: 1, flexShrink: 0 }}>|</span>
                 <div style={line} />
-                <span style={{ fontSize: 8, color: '#64748b', padding: '0 5px', whiteSpace: 'nowrap', lineHeight: 1, flexShrink: 0 }}>max width: 100 ft (current: {metrics.siteWidthFt} ft)</span>
+                <span style={{ fontSize: 8, color: '#64748b', padding: '0 5px', whiteSpace: 'nowrap', lineHeight: 1, flexShrink: 0 }}>total site width: {metrics.siteWidthFt} ft / {safetyAssumptions.maxUsableWidthFt + 2 * safetyAssumptions.perimeterMarginFt} ft max</span>
                 <div style={line} />
                 <span style={{ fontSize: 9, color: '#475569', lineHeight: 1, flexShrink: 0 }}>|</span>
               </div>
