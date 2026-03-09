@@ -49,6 +49,11 @@ export default function MetricsPanel({ metrics, safetyAssumptions }: Props) {
       progress: Math.round((metrics.equipmentFootprintSqFt / metrics.boundingAreaSqFt) * 100),
       subTooltip: 'Equipment footprint ÷ total site area — how much of the site is occupied by devices',
     },
+    {
+      label: 'Energy Density',
+      value: `${(metrics.totalEnergyMWh / (metrics.boundingAreaSqFt / 43_560)).toFixed(1)} MWh/acre`,
+      subTooltip: 'Energy capacity divided by total site area in acres (1 acre = 43,560 sq ft)',
+    },
   ]
 
   return (
