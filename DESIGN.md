@@ -560,3 +560,18 @@ Every architectural choice is a tradeoff. Here are the major ones.
 | **Symmetric ±0.05 MWh tolerance** | Both `target − 0.05` and `target + 0.05` accepted as "close enough" | A layout that is fractionally under target could be rejected in strict contexts | An asymmetric bound (`target × 0.99`) caused an infinite optimization loop: the algorithm kept iterating trying to hit a target it could never quite reach. Symmetric ±0.05 MWh is well within project uncertainty and breaks the cycle. |
 | **Go backend instead of Node.js** | Strong typing, predictable performance, single static binary deployment | Larger ecosystem of frontend-friendly tooling (e.g. shared TS types, tRPC) | The service is CPU-bound (layout + optimization) rather than I/O-bound. Go's performance is predictable under load and the binary deploys anywhere without a runtime. Node would be a natural fit if the backend were just a thin API proxy, but it isn't. |
 | **Storing full `site_plan_json` in sessions** | Sessions reload instantly; no recomputation needed | Stored JSON can grow large (hundreds of devices) and may go stale if the algorithm changes | Recomputing a large plan on every load adds latency and non-determinism. Plans are immutable snapshots — the user explicitly creates a new plan when they want a fresh result. Stale data is an acceptable tradeoff for instant recall. |
+
+---
+
+## 10. Known Limitations
+
+These are intentional scope decisions, not oversights. Each is a natural next step for a production deployment.
+
+| Limitation | Detail | Production path |
+|------------|--------|-----------------|
+| **No authentication** | The app is single-tenant — all sessions share one SQLite database with no user identity. Anyone with access to the URL can read or overwrite all saved sessions. | Add a users table + JWT-based auth (or an OAuth provider). Scope all session queries to the authenticated user ID. |
+| **Single-user write concurrency** | SQLite WAL mode supports concurrent reads but serialises writes. Under simultaneous heavy write load from multiple users, requests will queue. | Migrate to Postgres (swap the SQLite driver; the SQL is standard). The rest of the backend is database-agnostic. |
+| **No real-time collaboration** | Two users editing the same session simultaneously will silently overwrite each other's changes — there is no conflict detection or locking. | Add optimistic concurrency (e.g. an `updated_at` version field checked on save) or WebSocket-based presence. |
+| **Heuristic layout, not globally optimal** | FFD bin-packing produces near-optimal layouts for equal-height rectangular devices but does not guarantee the tightest possible arrangement in all cases. | Replace with an exact 2D strip-packing solver for cases where every square foot matters. |
+| **No HTTPS / production hardening** | The server listens on plain HTTP. There is no rate limiting, request size cap beyond Go's defaults, or structured logging. | Terminate TLS at a reverse proxy (nginx / Caddy). Add per-IP rate limiting and a structured logger (e.g. `slog`). |
+| **Device catalogue is hardcoded** | The four Tesla device types are seeded at startup from Go source. Adding a new device requires a code change and redeploy. | Move the catalogue to a DB table with an admin API for CRUD operations. |
