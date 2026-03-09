@@ -132,7 +132,13 @@ export function computePlanBadges(current: SitePlanData, optimalLayouts: Optimal
     }
   }
 
-  return [areaBadge(), costBadge()]
+  const densityBadge = (): PlanBadge => {
+    const acres = cm.boundingAreaSqFt / 43_560
+    const density = acres > 0 ? cm.totalEnergyMWh / acres : 0
+    return { label: 'Density', text: `${density.toFixed(1)} MWh/acre`, good: true, loading: false }
+  }
+
+  return [areaBadge(), costBadge(), densityBadge()]
 }
 
 export default function OptimizationPanel({
