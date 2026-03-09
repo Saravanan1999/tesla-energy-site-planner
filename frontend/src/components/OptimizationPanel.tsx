@@ -207,13 +207,14 @@ export default function OptimizationPanel({
     : false
 
   const openSaveAs = () => {
-    setSaveAsName(currentSiteName ? `${currentSiteName} — Optimized` : 'Optimized Plan')
+    setSaveAsName('')
     setSaveAsError(null)
     setSaveAsOpen(true)
   }
 
   const handleSaveAsConfirm = async () => {
-    if (!saveAsName.trim() || saveAsConflict) return
+    if (!saveAsName.trim()) { setSaveAsError('Please enter a session name.'); return }
+    if (saveAsConflict) return
     setSaveAsWorking(true)
     setSaveAsError(null)
     const ok = await onSaveAs(saveAsName.trim())
