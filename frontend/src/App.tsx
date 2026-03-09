@@ -596,7 +596,6 @@ export default function App() {
               appliedSnapshots={appliedSnapshots}
               onRevert={handleRevert}
               onSaveAs={handleSaveAs}
-              currentSiteName={siteName}
               sessionNames={sessionNames}
               optimalLayouts={optimalLayouts}
               constraintMode={constraintMode}

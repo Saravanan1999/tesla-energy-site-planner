@@ -12,7 +12,6 @@ interface Props {
   appliedSnapshots: { quantities: Record<number, number>; label: string; type: 'apply' | 'manual' }[]
   onRevert: () => void
   onSaveAs: (name: string) => Promise<boolean>
-  currentSiteName: string
   sessionNames: SessionData[]
   optimalLayouts: OptimalLayouts
   onTargetMWhChange: (mwh: number) => void
@@ -143,7 +142,7 @@ export function computePlanBadges(current: SitePlanData, optimalLayouts: Optimal
 
 export default function OptimizationPanel({
   sitePlan, objective, onObjectiveChange, onApply,
-  appliedSnapshots, onRevert, onSaveAs, currentSiteName, sessionNames,
+  appliedSnapshots, onRevert, onSaveAs, sessionNames,
   optimalLayouts, onTargetMWhChange,
   constraintMode, onConstraintModeChange, targetAreaSqFt, onTargetAreaChange, optimalMaxPower,
   pendingTargetPlan, onConfirmTargetPlan, onCancelTargetPlan,
