@@ -4,6 +4,9 @@ A site planning tool for utility-scale battery storage projects. Pick from avail
 
 > **New here?** Start below to get the app running, then see [DESIGN.md](DESIGN.md) for a full technical deep-dive.
 
+
+🎥 **Demo Video:** https://github.com/user-attachments/assets/df3fd35d-c7a3-4b1d-91c6-ca73f78a912f
+
 ---
 
 ## What it does
